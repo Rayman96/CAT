@@ -1,0 +1,15 @@
+"C:\Program Files\JetBrains\CLion 2023.3.4\bin\cmake\win\x64\bin\cmake.exe" -DCMAKE_BUILD_TYPE=Debug "-DCMAKE_MAKE_PROGRAM=C:/Program Files/JetBrains/CLion 2023.3.4/bin/ninja/win/x64/ninja.exe" -G Ninja -S "C:\Users\IDEA\Downloads\seal_gpu-main (1)\seal_gpu-main" -B "C:\Users\IDEA\Downloads\seal_gpu-main (1)\seal_gpu-main\cmake-build-debug"
+-- Build type (CMAKE_BUILD_TYPE): Debug
+-- GPU_SUPPORT: ON
+-- The CXX compiler identification is GNU 13.1.0
+-- The C compiler identification is GNU 13.1.0
+CMake Error at C:/Program Files/JetBrains/CLion 2023.3.4/bin/cmake/win/x64/share/cmake-3.27/Modules/CMakeDetermineCUDACompiler.cmake:180 (message):
+  Failed to find nvcc.
+
+  Compiler requires the CUDA toolkit.  Please set the CUDAToolkit_ROOT
+  variable.
+Call Stack (most recent call first):
+  CMakeLists.txt:38 (project)
+
+
+-- Configuring incomplete, errors occurred!

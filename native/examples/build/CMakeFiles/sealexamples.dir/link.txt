@@ -1,0 +1,1 @@
+/usr/bin/c++ -static CMakeFiles/sealexamples.dir/2_encoders.cpp.o -o bin/sealexamples  /usr/local/lib/libseal-4.1.a -pthread 
