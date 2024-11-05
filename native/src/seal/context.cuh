@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #pragma once
@@ -117,7 +117,7 @@ namespace seal
         /**
         The variable parameter_error is set to:
         - none, if parameters are not validated;
-        - success, if parameters are considered valid by Microsoft SEAL;
+        - success, if parameters are considered valid by IDEA SEAL_GPU;
         - other values, if parameters are validated and invalid.
         */
         error_type parameter_error;
@@ -145,7 +145,7 @@ namespace seal
         polynomial modulus is of the form X^N+1, where N is a power of two, then
         FFT can be used for fast multiplication of polynomials modulo the polynomial
         modulus. In this case the variable using_fft will be set to true. However,
-        currently Microsoft SEAL requires this to be the case for the parameters
+        currently IDEA SEAL_GPU requires this to be the case for the parameters
         to be valid. Therefore, parameters_set can only be true if using_fft is
         true.
         */
@@ -157,7 +157,7 @@ namespace seal
         polynomial modulus and N is a power of two, then the number-theoretic
         transform (NTT) can be used for fast multiplications of polynomials modulo
         the polynomial modulus and coefficient modulus. In this case the variable
-        using_ntt will be set to true. However, currently Microsoft SEAL requires
+        using_ntt will be set to true. However, currently IDEA SEAL_GPU requires
         this to be the case for the parameters to be valid. Therefore, parameters_set
         can only be true if using_ntt is true.
         */
@@ -265,6 +265,8 @@ namespace seal
             ContextData(ContextData &&move) = default;
 
             ContextData &operator=(ContextData &&move) = default;
+            
+            // ~ContextData();
 
             /**
             Returns a const reference to the underlying encryption parameters.
@@ -784,6 +786,8 @@ namespace seal
 
         // void ensure_ntt_size(uint64_t **input, size_t current_size, size_t &size) const;
         void ensure_ntt_size(size_t current_size) const;
+
+        void free_gpu_pool() const;
 
     private:
         /**

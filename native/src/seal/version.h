@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #pragma once
@@ -9,7 +9,7 @@
 namespace seal
 {
     /**
-    Holds Microsoft SEAL version information. A SEALVersion contains four values:
+    Holds IDEA SEAL_GPU version information. A SEALVersion contains four values:
 
         1. The major version number;
         2. The minor version number;

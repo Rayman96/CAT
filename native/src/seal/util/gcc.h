@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #pragma once
@@ -14,7 +14,7 @@
 #include "seal/util/config.h"
 
 #if (__GNUC__ == 6) && defined(SEAL_USE_IF_CONSTEXPR)
-#pragma GCC error "g++-6 cannot compile Microsoft SEAL as C++17; set CMake build option `SEAL_USE_CXX17' to OFF"
+#pragma GCC error "g++-6 cannot compile IDEA SEAL_GPU as C++17; set CMake build option `SEAL_USE_CXX17' to OFF"
 #endif
 
 #define SEAL_FORCE_INLINE inline __attribute__((always_inline))

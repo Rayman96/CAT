@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #include "seal/evaluator.h"
@@ -429,7 +429,7 @@ namespace seal
         auto base_q_ntt_tables = iter(context_data.small_ntt_tables());
         auto base_Bsk_ntt_tables = iter(rns_tool->base_Bsk_ntt_tables());
 
-        // Microsoft SEAL uses BEHZ-style RNS multiplication. This process is somewhat complex and consists of the
+        // IDEA SEAL_GPU uses BEHZ-style RNS multiplication. This process is somewhat complex and consists of the
         // following steps:
         //
         // (1) Lift encrypted1 and encrypted2 (initially in base q) to an extended base q U Bsk U {m_tilde}
@@ -918,7 +918,7 @@ namespace seal
         auto base_q_ntt_tables = iter(context_data.small_ntt_tables());
         auto base_Bsk_ntt_tables = iter(rns_tool->base_Bsk_ntt_tables());
 
-        // Microsoft SEAL uses BEHZ-style RNS multiplication. For details, see Evaluator::bfv_multiply. This function
+        // IDEA SEAL_GPU uses BEHZ-style RNS multiplication. For details, see Evaluator::bfv_multiply. This function
         // uses additionally Karatsuba multiplication to reduce the complexity of squaring a size-2 ciphertext, but the
         // steps are otherwise the same as in Evaluator::bfv_multiply.
 

@@ -1,4 +1,4 @@
-# Copyright (c) Microsoft Corporation. All rights reserved.
+# Copyright (c) IDEA Corporation. All rights reserved.
 # Licensed under the MIT license.
 set(GPU_SUPPORT_OPTION_STR "Use GPU to accelerate computation")
 option(GPU_SUPPORT ${GPU_SUPPORT_OPTION_STR} ON)
@@ -120,6 +120,7 @@ if(GPU_SUPPORT)
             ${CMAKE_CURRENT_LIST_DIR}/uintarithsmallmod.cuh
             ${CMAKE_CURRENT_LIST_DIR}/uintcore.h
             ${CMAKE_CURRENT_LIST_DIR}/ztools.h
+            ${CMAKE_CURRENT_LIST_DIR}/gpu_data.h
         DESTINATION
             ${SEAL_INCLUDES_INSTALL_DIR}/seal/util
     )

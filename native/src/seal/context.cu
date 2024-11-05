@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #include "seal/context.cuh"
@@ -221,7 +221,8 @@ namespace seal
             get_significant_bit_count_uint(context_data.total_coeff_modulus_.get(), coeff_modulus_size);
 
         // 将total_coeff_modulus_拷贝到GPU
-        checkCudaErrors(cudaMalloc((void **)&context_data.d_total_coeff_modulus_, coeff_modulus_size * sizeof(std::uint64_t)));
+        // checkCudaErrors(cudaMalloc((void **)&context_data.d_total_coeff_modulus_, coeff_modulus_size * sizeof(std::uint64_t)));
+        allocate_gpu<uint64_t>(&context_data.d_total_coeff_modulus_, coeff_modulus_size);
         checkCudaErrors(cudaMemcpy(
             context_data.d_total_coeff_modulus_, context_data.total_coeff_modulus(),
             coeff_modulus_size * sizeof(uint64_t), cudaMemcpyHostToDevice));
@@ -307,11 +308,14 @@ namespace seal
             }
             cudaPointerAttributes attributes;
 
-            checkCudaErrors(cudaMalloc((void **)&context_data.d_root_powers_, c_vec_size * sizeof(std::uint64_t)));
             checkCudaErrors(cudaMalloc((void **)&context_data.d_bit_count_, coeff_modulus.size() * sizeof(int)));
-            checkCudaErrors(cudaMalloc((void **)&context_data.d_roots_, coeff_modulus.size() * sizeof(uint64_t)));
 
+            allocate_gpu<uint64_t>(&context_data.d_root_powers_, c_vec_size);
+            // allocate_gpu<int>(&context_data.d_bit_count_, coeff_modulus.size());
+            // cout << "allocate bit_count" << endl;
+            allocate_gpu<uint64_t>(&context_data.d_roots_, coeff_modulus.size());
 
+            cudaDeviceSynchronize();
             checkCudaErrors(cudaMemcpy(
                 context_data.d_root_powers_, h_root_powers, c_vec_size * sizeof(uint64_t), cudaMemcpyHostToDevice));
 
@@ -342,7 +346,7 @@ namespace seal
             }
 #endif 
             // 创建inv_table
-            checkCudaErrors(cudaMalloc((void **)&context_data.d_inv_root_powers_, c_vec_size * sizeof(uint64_t)));
+            allocate_gpu<uint64_t>(&context_data.d_inv_root_powers_, c_vec_size);
 
             for (int i = 0; i < coeff_modulus.size(); i++)
             {
@@ -418,7 +422,8 @@ auto plain_modulu = parms.plain_modulus();
 #endif
 
 // plain INTT table
-            checkCudaErrors(cudaMalloc((void **)&context_data.d_plain_inv_root_powers_, poly_modulus_degree * sizeof(uint64_t)));
+            // checkCudaErrors(cudaMalloc((void **)&context_data.d_plain_inv_root_powers_, poly_modulus_degree * sizeof(uint64_t)));
+            allocate_gpu<uint64_t>(&context_data.d_plain_inv_root_powers_, poly_modulus_degree);
             fillTablePsi128<<<(poly_modulus_degree + 1023) / 1024, 1024>>>(
                 context_data.plain_ntt_tables_.get()[0].get_inv_root(), plain_modulu.value(),
                 context_data.d_plain_inv_root_powers_,
@@ -467,9 +472,10 @@ auto plain_modulu = parms.plain_modulus();
                 host_coeff_div_plain_modulus_quoient[i] = context_data.coeff_div_plain_modulus_[i].quotient;
             }
 
-            checkCudaErrors(cudaMalloc((void **)&context_data.d_coeff_div_plain_modulus_operand_, coeff_modulus_size * sizeof(uint64_t)));
-            checkCudaErrors(cudaMalloc((void **)&context_data.d_coeff_div_plain_modulus_quoitent_, coeff_modulus_size * sizeof(uint64_t)));
-
+            // checkCudaErrors(cudaMalloc((void **)&context_data.d_coeff_div_plain_modulus_operand_, coeff_modulus_size * sizeof(uint64_t)));
+            // checkCudaErrors(cudaMalloc((void **)&context_data.d_coeff_div_plain_modulus_quoitent_, coeff_modulus_size * sizeof(uint64_t)));
+            allocate_gpu<uint64_t>(&context_data.d_coeff_div_plain_modulus_operand_, coeff_modulus_size);
+            allocate_gpu<uint64_t>(&context_data.d_coeff_div_plain_modulus_quoitent_, coeff_modulus_size);
 
             checkCudaErrors(cudaMemcpy(
                 context_data.d_coeff_div_plain_modulus_operand_, host_coeff_div_plain_modulus_operand, coeff_modulus_size * sizeof(uint64_t),
@@ -502,7 +508,8 @@ auto plain_modulu = parms.plain_modulus();
             }
             
 
-            checkCudaErrors(cudaMalloc((void **)&context_data.d_plain_upper_half_increment_, coeff_modulus_size * sizeof(uint64_t)));
+            // checkCudaErrors(cudaMalloc((void **)&context_data.d_plain_upper_half_increment_, coeff_modulus_size * sizeof(uint64_t)));
+            allocate_gpu<uint64_t>(&context_data.d_plain_upper_half_increment_, coeff_modulus_size);
 
             checkCudaErrors(cudaMemcpy(
                 context_data.d_plain_upper_half_increment_, context_data.plain_upper_half_increment_.get(), coeff_modulus_size * sizeof(uint64_t),
@@ -547,14 +554,13 @@ auto plain_modulu = parms.plain_modulus();
                 context_data.upper_half_threshold_.get());
 
             // 将upper_half_threshold_拷贝到GPU
-
-            checkCudaErrors(cudaMalloc((void **)&context_data.d_upper_half_threshold_, coeff_modulus_size * sizeof(std::uint64_t)));
-
+            allocate_gpu<uint64_t>(&context_data.d_upper_half_threshold_, coeff_modulus_size);
+            cudaDeviceSynchronize();
             checkCudaErrors(cudaMemcpy(
                 context_data.d_upper_half_threshold_, context_data.upper_half_threshold_.get(),
                 coeff_modulus_size * sizeof(uint64_t), cudaMemcpyHostToDevice));
             
-            checkCudaErrors(cudaMalloc((void **)&context_data.d_plain_upper_half_increment_, coeff_modulus_size * sizeof(uint64_t)));
+            allocate_gpu<uint64_t>(&context_data.d_plain_upper_half_increment_, coeff_modulus_size);
 
             checkCudaErrors(cudaMemcpy(
                 context_data.d_plain_upper_half_increment_, context_data.plain_upper_half_increment_.get(), coeff_modulus_size * sizeof(uint64_t),
@@ -644,6 +650,36 @@ auto plain_modulu = parms.plain_modulus();
         
     }
 
+    void SEALContext::free_gpu_pool() const{
+        PoolManager& poolManager = PoolManager::getInstance();
+        GPUMemoryPool* memoryPool = poolManager.getMemoryPool();
+        memoryPool->check();
+    }
+
+
+    // SEALContext::ContextData::~ContextData() {
+    //     size_t poly_modulus_degree = parms_.poly_modulus_degree();
+    //     auto &coeff_modulus = parms_.coeff_modulus();
+    //     auto &plain_modulus = parms_.plain_modulus();
+    //     size_t coeff_modulus_size = coeff_modulus.size();
+    //     size_t c_vec_size = poly_modulus_degree * coeff_modulus.size();
+
+    //     printf("destruct context data\n");
+    //     deallocate_gpu<std::uint64_t>(&d_total_coeff_modulus_, coeff_modulus_size);
+    //     checkCudaErrors(cudaFree((void **)d_bit_count_));
+    //     // cudaFree(d_bit_count_);
+    //     // deallocate_gpu<int>(&d_bit_count_, coeff_modulus_size);
+    //     deallocate_gpu<std::uint64_t>(&d_root_powers_, c_vec_size);
+    //     deallocate_gpu<std::uint64_t>(&d_roots_, coeff_modulus_size);
+    //     deallocate_gpu<std::uint64_t>(&d_inv_root_powers_, c_vec_size);
+    //     deallocate_gpu<std::uint64_t>(&d_plain_inv_root_powers_, poly_modulus_degree);
+    //     deallocate_gpu<std::uint64_t>(&d_coeff_div_plain_modulus_operand_, coeff_modulus_size);
+    //     deallocate_gpu<std::uint64_t>(&d_coeff_div_plain_modulus_quoitent_, coeff_modulus_size);
+    //     deallocate_gpu<std::uint64_t>(&d_plain_upper_half_increment_, coeff_modulus_size);
+    //     deallocate_gpu<std::uint64_t>(&d_upper_half_threshold_, coeff_modulus_size);
+    //     deallocate_gpu<std::uint64_t>(&d_plain_upper_half_increment_, coeff_modulus_size);
+    // }
+
     SEALContext::SEALContext(
         EncryptionParameters parms, bool expand_mod_chain, sec_level_type sec_level, MemoryPoolHandle pool)
         : pool_(move(pool)), sec_level_(sec_level)
@@ -677,9 +713,9 @@ auto plain_modulu = parms.plain_modulus();
         }
 
 // 初始化显存池
-        uint64_t init_size = 1024 * 1024 * 10;
+        size_t init_size = 1024 * 1024 * 10 * 5 * 100 * 2;
         PoolManager& poolManager = PoolManager::getInstance();
-        poolManager.initialize(init_size); 
+        poolManager.initialize(init_size);
         // poolManager.getMemoryPool()->printPoolStatus();
 
 

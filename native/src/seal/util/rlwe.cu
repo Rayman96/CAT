@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #include "seal/ciphertext.cuh"
@@ -383,12 +383,12 @@ namespace seal
             const PublicKey &public_key, const SEALContext &context, parms_id_type parms_id, bool is_ntt_form,
             Ciphertext &destination)
         {
-#ifdef SEAL_DEBUG
-            if (!is_valid_for(public_key, context))
-            {
-                throw invalid_argument("public key is not valid for the encryption parameters");
-            }
-#endif
+// #ifdef SEAL_DEBUG
+//             if (!is_valid_for(public_key, context))
+//             {
+//                 throw invalid_argument("public key is not valid for the encryption parameters");
+//             }
+// #endif
             // We use a fresh memory pool with `clear_on_destruction' enabled
             MemoryPoolHandle pool = MemoryManager::GetPool(mm_prof_opt::mm_force_new, true);
 
@@ -688,7 +688,7 @@ namespace seal
 
 
             uint64_t *d_noise = nullptr;
-            checkCudaErrors(cudaMalloc((void **)&d_noise, coeff_count * coeff_modulus_size * sizeof(uint64_t)));
+            allocate_gpu<uint64_t>(&d_noise, coeff_count * coeff_modulus_size);
             checkCudaErrors(cudaMemcpy(d_noise, noise.get(), coeff_count * coeff_modulus_size * sizeof(uint64_t), cudaMemcpyHostToDevice));
 
 
@@ -766,8 +766,7 @@ namespace seal
                 c1[0] = static_cast<uint64_t>(0xFFFFFFFFFFFFFFFFULL);
                 prng_info.save(reinterpret_cast<seal_byte *>(c1 + 1), prng_info_byte_count, compr_mode_type::none);
             }
-
-
+            deallocate_gpu<uint64_t>(&d_noise, coeff_count * coeff_modulus_size);
         }
 
     } // namespace util

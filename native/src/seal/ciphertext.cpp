@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #include "seal/ciphertext.cuh"
@@ -35,7 +35,7 @@ namespace seal
             // copy(assign.data_.cbegin(), assign.data_.cend(), data_.begin());    
         }
         resize_gpu(assign.size_, assign.poly_modulus_degree_,  assign.coeff_modulus_size_);
-        checkCudaErrors(cudaMemcpy(d_data_, assign.d_data_, assign.size_ * assign.poly_modulus_degree_ * assign.coeff_modulus_size_  * sizeof(uint64_t), cudaMemcpyDeviceToDevice));
+        checkCudaErrors(cudaMemcpy(d_data_.data(), assign.d_data_.data(), assign.size_ * assign.poly_modulus_degree_ * assign.coeff_modulus_size_  * sizeof(uint64_t), cudaMemcpyDeviceToDevice));
 
         return *this;
     }
@@ -74,9 +74,9 @@ namespace seal
         // First reserve, then resize
         data_.reserve(new_data_capacity);
         data_.resize(new_data_size);
-        
-        // printf("Ciphertext::reserve_internal copy data to GPU\n");
-        d_data_malloc(10 * new_data_capacity);
+        resize_gpu(data_.size(), poly_modulus_degree_, coeff_modulus_size_);
+
+        // d_data_malloc(new_data_capacity);
 
         // Set the size
         size_ = min<size_t>(size_capacity, size_);
@@ -191,6 +191,8 @@ namespace seal
         // different size characteristics and we need the exact size when
         // compr_mode is compr_mode_type::none.
         size_t data_size;
+        const_cast<Ciphertext*>(this)->to_cpu();
+
         if (has_seed_marker())
         {
             // Create a temporary aliased DynArray of smaller size

@@ -1,4 +1,4 @@
-# Copyright (c) Microsoft Corporation. All rights reserved.
+# Copyright (c) IDEA Corporation. All rights reserved.
 # Licensed under the MIT license.
 
 cmake_minimum_required(VERSION 3.13)
@@ -9,7 +9,7 @@ project(SEALBench VERSION 4.1.1 LANGUAGES CXX)
 if(NOT DEFINED SEAL_BUILD_BENCH)
     set(SEAL_BUILD_BENCH ON)
 
-    # Import Microsoft SEAL
+    # Import SEAL_GPU
     find_package(SEAL 4.1.1 EXACT REQUIRED)
 
     # Must define these variables and include macros

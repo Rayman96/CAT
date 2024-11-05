@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #include "seal/util/galois.h"
@@ -28,6 +28,25 @@ namespace seal
                 index_raw &= static_cast<uint64_t>(coeff_count_minus_one);
                 temp_table = reverse_bits_kernel<uint32_t>(static_cast<uint32_t>(index_raw), coeff_count_power_);
                 result[idx] = operand[temp_table];
+
+                idx += blockDim.x * gridDim.x;
+            }
+        }
+
+        __global__ void generate_table_ntt_batch_kernel(
+            uint32_t galois_elt, uint32_t coeff_count, int coeff_count_power_, size_t modulu_size, uint64_t *operand, uint64_t *result)
+        {
+            size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+            uint32_t temp_table;
+            while (idx < coeff_count * modulu_size)
+            {
+                size_t i = (idx % coeff_count) + coeff_count;
+                uint32_t coeff_count_minus_one = static_cast<uint32_t>(coeff_count) - 1;
+                uint32_t reversed = reverse_bits_kernel<uint32_t>(static_cast<uint32_t>(i), coeff_count_power_ + 1);
+                uint64_t index_raw = (static_cast<uint64_t>(galois_elt) * static_cast<uint64_t>(reversed)) >> 1;
+                index_raw &= static_cast<uint64_t>(coeff_count_minus_one);
+                temp_table = reverse_bits_kernel<uint32_t>(static_cast<uint32_t>(index_raw), coeff_count_power_);
+                result[idx] = operand[temp_table + (idx / coeff_count) * coeff_count];
 
                 idx += blockDim.x * gridDim.x;
             }
@@ -232,6 +251,18 @@ namespace seal
 
             generate_table_ntt_kernel<<<(coeff_count_ + 1023) / 1023, 1024>>>(
                             galois_elt, coeff_count_, coeff_count_power_, d_operand, d_result);
+        }
+
+        void GaloisTool::apply_galois_ntt_batch_cuda(uint64_t *d_operand, uint32_t galois_elt, uint64_t *d_result, size_t modulu_size) const
+        {
+
+            generate_table_ntt_batch_kernel<<<(coeff_count_ * modulu_size + 255) / 255, 256>>>(
+                            galois_elt, 
+                            coeff_count_, 
+                            coeff_count_power_,
+                            modulu_size, 
+                            d_operand, 
+                            d_result);
         }
 
 

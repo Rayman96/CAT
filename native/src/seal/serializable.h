@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #pragma once
@@ -22,7 +22,7 @@ namespace seal
     if a seed was used, the seed will be automatically expanded.
 
     Serializable objects also expose the save_size function that behaves just
-    as the save_size functions of other objects in Microsoft SEAL: it returns
+    as the save_size functions of other objects in IDEA SEAL_GPU: it returns
     an upper bound on the size of a buffer needed to hold the serialized data.
 
     The following illustrates the use of serializable objects:

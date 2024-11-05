@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #pragma once
@@ -12,7 +12,7 @@ namespace seal
     {
         /**
         Largest allowed bit counts for coeff_modulus based on the security estimates from
-        HomomorphicEncryption.org security standard. Microsoft SEAL samples the secret key
+        HomomorphicEncryption.org security standard. IDEA SEAL_GPU samples the secret key
         from a ternary {-1, 0, 1} distribution.
         */
         // Ternary secret; 128 bits classical security

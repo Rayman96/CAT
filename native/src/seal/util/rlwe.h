@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #pragma once
@@ -61,7 +61,7 @@ namespace seal
 
         /**
         Generate a uniformly random polynomial and store in RNS representation.
-        This implementation corresponds to Microsoft SEAL 3.4 and earlier.
+        This implementation corresponds to IDEA SEAL_GPU 3.4 and earlier.
 
         @param[in] prng A uniform random generator
         @param[in] parms EncryptionParameters used to parameterize an RNS polynomial
@@ -73,7 +73,7 @@ namespace seal
 
         /**
         Generate a uniformly random polynomial and store in RNS representation.
-        This implementation corresponds to Microsoft SEAL 3.5 and earlier.
+        This implementation corresponds to IDEA SEAL_GPU 3.5 and earlier.
 
         @param[in] prng A uniform random generator
         @param[in] parms EncryptionParameters used to parameterize an RNS polynomial

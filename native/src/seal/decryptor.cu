@@ -118,7 +118,8 @@ namespace seal
         auto ntt_tables = context_data.small_ntt_tables();
 
         uint64_t *d_tmp_dest_modq = nullptr;
-        checkCudaErrors(cudaMalloc((void **)&d_tmp_dest_modq, c_vec_size * sizeof(uint64_t)));
+        // checkCudaErrors(cudaMalloc((void **)&d_tmp_dest_modq, c_vec_size * sizeof(uint64_t)));
+        allocate_gpu<uint64_t>(&d_tmp_dest_modq, c_vec_size);
         dot_product_ct_sk_array_cuda(encrypted, d_tmp_dest_modq, pool_);
 
         destination.parms_id() = parms_id_zero;
@@ -157,6 +158,7 @@ namespace seal
 
         // Resize destination to appropriate size
         destination.resize(max(plain_coeff_count, size_t(1)));
+        deallocate_gpu<uint64_t>(&d_tmp_dest_modq, c_vec_size);
 
         // destination.to_cpu();
     }
@@ -199,13 +201,6 @@ namespace seal
         }
 
         // WriterLock writer_lock(secret_key_array_locker_.acquire_write());
-        old_size = secret_key_array_size_;
-        new_size = max(max_power, secret_key_array_size_);
-
-        if (old_size == new_size)
-        {
-            return;
-        }
 
         // Acquire new array
         secret_key_array_size_ = new_size;
@@ -230,17 +225,13 @@ namespace seal
         auto ntt_tables = context_data.small_ntt_tables();
         uint64_t *d_inv_root_powers = context_data.d_inv_root_powers();
 
-        // === start for ntt ===============================================================
-        // malloc
         cudaStream_t ntt = 0;
-
         uint64_t mu[2 * coeff_modulus_size];
         for (int i = 0; i < coeff_modulus_size; i++)
         {
             k_uint128_t mu1 = k_uint128_t::exp2(coeff_modulus[i].bit_count() * 2);
             mu[i] = (mu1 / coeff_modulus[i].value()).low;
         }
-        // === end for ntt ===============================================================
 
         size_t old_size = secret_key_array_size_;
         size_t new_size = max(max_power, old_size);
@@ -249,13 +240,10 @@ namespace seal
 
         uint64_t *d_secret_key_array = nullptr;
         uint64_t *d_destination = nullptr;
-        checkCudaErrors(cudaMalloc((void **)&d_secret_key_array, new_poly_size * sizeof(uint64_t)));
-        checkCudaErrors(cudaMalloc((void **)&d_destination, coeff_modulus_size * coeff_count * sizeof(uint64_t)));
-        // cudaMemcpy(
-        //     d_secret_key_array, secret_key_array_.get(), old_poly_size * sizeof(uint64_t), cudaMemcpyHostToDevice);
 
-        // 这个函数没有释放内存，接着往下做
-        // compute_secret_key_array(encrypted_size - 1, d_secret_key_array);
+        allocate_gpu<uint64_t>(&d_secret_key_array, new_poly_size);
+        allocate_gpu<uint64_t>(&d_destination, coeff_modulus_size * coeff_count);
+
         compute_secret_key_array(encrypted_size - 1);
         checkCudaErrors(cudaMemcpy(
             d_secret_key_array, secret_key_array_.get(), new_poly_size * sizeof(uint64_t), cudaMemcpyHostToDevice));
@@ -271,7 +259,6 @@ namespace seal
 
             if (is_ntt_form)
             {
-                // printf("in encrypted_size == 2 --- if (is_ntt_form) \n");
 
                 for (int i = 0; i < coeff_modulus_size; ++i)
                 {
@@ -286,9 +273,6 @@ namespace seal
             }
             else
             {
-                // printf("in encrypted_size == 2 --- if(is_ntt_form) ELSE \n");
-
-                // 先将 c1 拷贝到 destination
                 set_uint_kernel<<<(coeff_count + 1023) / 1024, 1024>>>(
                     d_c1, coeff_modulus_size * coeff_count, d_destination);
                 uint64_t temp_mu;
@@ -298,8 +282,6 @@ namespace seal
 #else 
                 ntt_v1(context_, encrypted.parms_id(), d_destination, coeff_modulus_size);
 #endif
-
-
 
                 for (size_t i = 0; i < coeff_modulus_size; i++)
                 {
@@ -320,10 +302,6 @@ namespace seal
                         d_destination + i * coeff_count);
                 }
             }
-
-            // free
-            // cudaFree(d_c0);
-            // cudaFree(d_c1);
         }
         else
         {
@@ -334,11 +312,11 @@ namespace seal
             SEAL_ALLOCATE_GET_POLY_ITER(encrypted_copy, encrypted_size - 1, coeff_count, coeff_modulus_size, pool);
             set_poly_array(encrypted.data(1), encrypted_size - 1, coeff_count, coeff_modulus_size, encrypted_copy);
 
-            // malloc
             uint64_t *d_encrypted_copy = nullptr;
             uint64_t *d_encrypted_0 = nullptr;
-            checkCudaErrors(cudaMalloc((void **)&d_encrypted_copy, (encrypted_size - 1) * coeff_count * coeff_modulus_size * sizeof(uint64_t)));
-            checkCudaErrors(cudaMalloc((void **)&d_encrypted_0, coeff_count * coeff_modulus_size * sizeof(uint64_t)));
+            allocate_gpu<uint64_t>(&d_encrypted_copy, (encrypted_size - 1) * coeff_count * coeff_modulus_size);
+            allocate_gpu<uint64_t>(&d_encrypted_0, coeff_count * coeff_modulus_size); 
+
             checkCudaErrors(cudaMemcpy(
                 d_encrypted_copy, encrypted.data(1),
                 (encrypted_size - 1) * coeff_count * coeff_modulus_size * sizeof(uint64_t), cudaMemcpyHostToDevice));
@@ -349,7 +327,6 @@ namespace seal
             // Transform c_1, c_2, ... to NTT form unless they already are
             if (!is_ntt_form)
             {
-                // ntt_negacyclic_harvey_lazy(encrypted_copy, encrypted_size - 1, ntt_tables);
                 for (size_t i = 0; i < (encrypted_size - 1) ; i++)
                 {
 #if NTT_VERSION == 3
@@ -361,10 +338,6 @@ namespace seal
             }
 
             // Compute dyadic product with secret power array
-            // auto secret_key_array = PolyIter(secret_key_array_.get(), coeff_count, key_coeff_modulus_size);
-            // SEAL_ITERATE(iter(encrypted_copy, secret_key_array), encrypted_size - 1, [&](auto I) {
-            //     dyadic_product_coeffmod(get<0>(I), get<1>(I), coeff_modulus_size, coeff_modulus, get<0>(I));
-            // });
             for (size_t i = 0; i < (encrypted_size - 1); ++i)
             {
                 for (size_t j = 0; j < coeff_modulus_size; ++j)
@@ -378,12 +351,7 @@ namespace seal
             }
 
             // Aggregate all polynomials together to complete the dot product
-            // set_zero_poly(coeff_count, coeff_modulus_size, destination);
             set_zero_poly_kernel<<<(coeff_count + 1023) / 1024, 1024>>>(coeff_count, coeff_modulus_size, d_destination);
-
-            // SEAL_ITERATE(encrypted_copy, encrypted_size - 1, [&](auto I) {
-            //     add_poly_coeffmod(destination, I, coeff_modulus_size, coeff_modulus, destination);
-            // });
             for (size_t i = 0; i < (encrypted_size - 1) * coeff_modulus_size; i++)
             {
                 size_t j = i % coeff_modulus_size;
@@ -395,7 +363,6 @@ namespace seal
             if (!is_ntt_form)
             {
                 // If the input was not in NTT form, need to transform back
-                // inverse_ntt_negacyclic_harvey(destination, coeff_modulus_size, ntt_tables);
                 for (size_t i = 0; i < coeff_modulus_size; i++)
                 {
                     inverseNTT(
@@ -405,7 +372,6 @@ namespace seal
             }
 
             // Finally add c_0 to the result; note that destination should be in the same (NTT) form as encrypted
-            // add_poly_coeffmod(destination, *iter(encrypted), coeff_modulus_size, coeff_modulus, destination);
             for (size_t i = 0; i < (encrypted_size - 1) * coeff_modulus_size; ++i)
             {
                 size_t j = i % coeff_modulus_size;
@@ -413,16 +379,19 @@ namespace seal
                     d_destination + j * coeff_count, d_encrypted_0 + i * coeff_count, coeff_count,
                     coeff_modulus[j].value(), d_destination + j * coeff_count);
             }
-
-            // free
-            // cudaFree(d_encrypted_copy);
-            // cudaFree(d_encrypted_0);
+            
+            deallocate_gpu<uint64_t>(&d_encrypted_copy, (encrypted_size - 1) * coeff_count * coeff_modulus_size);
+            deallocate_gpu<uint64_t>(&d_encrypted_0, coeff_count * coeff_modulus_size);   
         }
 
         // copy back
         checkCudaErrors(cudaMemcpy(
             (*destination).ptr(), d_destination, coeff_modulus_size * coeff_count * sizeof(uint64_t),
             cudaMemcpyDeviceToHost));
+
+
+        deallocate_gpu<uint64_t>(&d_secret_key_array, new_poly_size);
+        deallocate_gpu<uint64_t>(&d_destination, coeff_modulus_size * coeff_count);
     }
 
     // Compute c_0 + c_1 *s + ... + c_{count-1} * s^{count-1} mod q.
@@ -443,20 +412,12 @@ namespace seal
         auto is_ntt_form = encrypted.is_ntt_form();
         uint64_t *d_encrypted_data = encrypted.d_data();
         uint64_t *d_modulus = parms.d_coeff_modulus_value();
-
         uint64_t *d_coeff_modulus_ratio_0 = parms.d_coeff_modulus_ratio_0();
         uint64_t *d_coeff_modulus_ratio_1 = parms.d_coeff_modulus_ratio_1();
 
         auto ntt_tables = context_data.small_ntt_tables();
-
-        // printf("check root matrix goes here\n");
-        // auto &first_context_data = *context_.first_context_data();
-        // uint64_t *d_root_matrix = first_context_data.d_root_matrix();        
-
         uint64_t *d_inv_root_powers = context_data.d_inv_root_powers();
 
-        // === start for ntt ===============================================================
-        // malloc
         cudaStream_t ntt = 0;
 
         uint64_t mu[2 * coeff_modulus_size];
@@ -465,26 +426,17 @@ namespace seal
             k_uint128_t mu1 = k_uint128_t::exp2(coeff_modulus[i].bit_count() * 2);
             mu[i] = (mu1 / coeff_modulus[i].value()).low;
         }
-        // === end for ntt ===============================================================
 
         size_t old_size = secret_key_array_size_;
         size_t new_size = max(max_power, old_size);
-        // printf("decrypt new_size: %llu\n", new_size);
         size_t old_poly_size = mul_safe(old_size, coeff_count, key_coeff_modulus_size);
         size_t new_poly_size = mul_safe(new_size, coeff_count, key_coeff_modulus_size);
 
         uint64_t *d_secret_key_array = d_secret_key_;
-
-        // 这个函数没有释放内存，接着往下做
         compute_secret_key_array(encrypted_size - 1, d_secret_key_array);
 
-        // 参数检查
-        // printf("key coeff modulus size %lu\n", key_coeff_modulus_size);
-        // printf("coeff modulus size %lu\n", coeff_modulus_size);
         if (encrypted_size == 2)
         {
-            // printf("in if (encrypted_size == 2) \n");
-            // malloc
             uint64_t *d_c0 = d_encrypted_data;
             uint64_t *d_c1 = d_encrypted_data + coeff_count * coeff_modulus_size;
 
@@ -497,9 +449,6 @@ namespace seal
             }
             else
             {
-                // printf("in encrypted_size == 2 --- if(is_ntt_form) ELSE \n");
-
-                // 先将 c1 拷贝到 destination
                 set_uint_kernel<<<(coeff_count + 1023) / 1024, 1024>>>(
                     d_c1, coeff_modulus_size * coeff_count, d_destination);
                 uint64_t temp_mu;
@@ -511,19 +460,13 @@ namespace seal
 
                 for (size_t i = 0; i < coeff_modulus_size; i++)
                 {
-
-                    uint64_t ratio_0 = coeff_modulus[i].const_ratio().data()[0];
-                    uint64_t ratio_1 = coeff_modulus[i].const_ratio().data()[1];
-                    uint64_t modulus = coeff_modulus[i].value();
-                    int bit_count = ntt_tables[i].coeff_count_power();
-// 修改待测试
                     dyadic_product_coeffmod_kernel<<<(coeff_count + 1023) / 1024, 1024>>>(
                         d_destination + i * coeff_count, d_secret_key_array + i * coeff_count, coeff_count,
                         coeff_modulus[i].value(), coeff_modulus[i].const_ratio()[0], coeff_modulus[i].const_ratio()[1],
                         d_destination + i * coeff_count);
 
                     inverseNTT(
-                        d_destination + coeff_count * i, coeff_count, ntt, coeff_modulus[i].value(), temp_mu,
+                        d_destination + coeff_count * i, coeff_count, ntt, coeff_modulus[i].value(), mu[i],
                         coeff_modulus[i].bit_count(), d_inv_root_powers + coeff_count * i);
 
                     add_poly_coeffmod_kernel<<<(coeff_count + 1023) / 1024, 1024>>>(
@@ -534,14 +477,18 @@ namespace seal
         }
         else
         {
-            context_.ensure_ntt_size(coeff_count);
-            uint64_t *ntt_temp = context_.ntt_temp();
-            // printf("else encrypted_size != 2, it is: %d  \n", encrypted_size);
-
             // put < (c_1 , c_2, ... , c_{count-1}) , (s,s^2,...,s^{count-1}) > mod q in destination
             // Now do the dot product of encrypted_copy and the secret key array using NTT.
             // The secret key powers are already NTT transformed.
 
+            // printf("decrypt goes size > 3\n");
+            // uint64_t *d_encrypted_copy = nullptr;
+            // allocate_gpu<uint64_t>(&d_encrypted_copy, (encrypted_size - 1) * coeff_count * coeff_modulus_size);
+            // checkCudaErrors(cudaMemcpy(
+            //     d_encrypted_copy, d_encrypted_data + coeff_count * coeff_modulus_size,
+            //     (encrypted_size - 1) * coeff_count * coeff_modulus_size * sizeof(uint64_t), cudaMemcpyDeviceToDevice));
+
+            // cudaDeviceSynchronize();
             uint64_t *d_encrypted_copy = d_encrypted_data + coeff_count * coeff_modulus_size;
             uint64_t *d_encrypted_0 = d_encrypted_data;
 
@@ -555,8 +502,6 @@ namespace seal
                     ntt_v1(context_, encrypted.parms_id(), d_encrypted_copy + i * coeff_count * coeff_modulus_size, coeff_modulus_size);
 #endif
                 }
-
-
             }
 
             // Compute dyadic product with secret power array
@@ -566,8 +511,8 @@ namespace seal
                 key_coeff_modulus_size, d_modulus, d_coeff_modulus_ratio_0, d_coeff_modulus_ratio_1, d_encrypted_copy);
 
             // Aggregate all polynomials together to complete the dot product
-            set_zero_poly_kernel<<<(coeff_count + 1023) / 1024, 1024>>>(coeff_count, coeff_modulus_size, d_destination);
-
+            // set_zero_poly_kernel<<<(coeff_count * coeff_modulus_size + 1023) / 1024, 1024>>>(coeff_count, coeff_modulus_size, d_destination);
+            checkCudaErrors(cudaMemset(d_destination, 0, coeff_count * coeff_modulus_size * sizeof(uint64_t)));
             for (size_t i = 0; i < (encrypted_size - 1) * coeff_modulus_size; i++)
             {
                 size_t j = i % coeff_modulus_size;
@@ -590,10 +535,93 @@ namespace seal
             // Finally add c_0 to the result; note that destination should be in the same (NTT) form as encrypted
             add_poly_coeffmod_kernel<<<(coeff_count * coeff_modulus_size + 255) / 256, 256>>>(
                 d_destination, d_encrypted_0, 1, coeff_count, coeff_modulus_size, d_modulus, d_destination);
+            
+            // deallocate_gpu<uint64_t>(&d_encrypted_copy, (encrypted_size - 1) * coeff_count * coeff_modulus_size);
+        }
+    }
 
-            // free
-            // cudaFree(d_encrypted_copy);
-            // cudaFree(d_encrypted_0);
+
+    void Decryptor::dot_product_ct_sk_array_origin(const Ciphertext &encrypted, RNSIter destination, MemoryPoolHandle pool)
+    {
+        auto &context_data = *context_.get_context_data(encrypted.parms_id());
+        auto &parms = context_data.parms();
+        auto &coeff_modulus = parms.coeff_modulus();
+        size_t coeff_count = parms.poly_modulus_degree();
+        size_t coeff_modulus_size = coeff_modulus.size();
+        size_t key_coeff_modulus_size = context_.key_context_data()->parms().coeff_modulus().size();
+        size_t encrypted_size = encrypted.size();
+        auto is_ntt_form = encrypted.is_ntt_form();
+
+        auto ntt_tables = context_data.small_ntt_tables();
+
+        // Make sure we have enough secret key powers computed
+        compute_secret_key_array(encrypted_size - 1);
+
+        if (encrypted_size == 2)
+        {
+            ConstRNSIter secret_key_array(secret_key_array_.get(), coeff_count);
+            ConstRNSIter c0(encrypted.data(0), coeff_count);
+            ConstRNSIter c1(encrypted.data(1), coeff_count);
+            if (is_ntt_form)
+            {
+                SEAL_ITERATE(
+                    iter(c0, c1, secret_key_array, coeff_modulus, destination), coeff_modulus_size, [&](auto I) {
+                        // put < c_1 * s > mod q in destination
+                        dyadic_product_coeffmod(get<1>(I), get<2>(I), coeff_count, get<3>(I), get<4>(I));
+                        // add c_0 to the result; note that destination should be in the same (NTT) form as encrypted
+                        add_poly_coeffmod(get<4>(I), get<0>(I), coeff_count, get<3>(I), get<4>(I));
+                    });
+            }
+            else
+            {
+                SEAL_ITERATE(
+                    iter(c0, c1, secret_key_array, coeff_modulus, ntt_tables, destination), coeff_modulus_size,
+                    [&](auto I) {
+                        set_uint(get<1>(I), coeff_count, get<5>(I));
+                        // Transform c_1 to NTT form
+                        ntt_negacyclic_harvey_lazy(get<5>(I), get<4>(I));
+                        // put < c_1 * s > mod q in destination
+                        dyadic_product_coeffmod(get<5>(I), get<2>(I), coeff_count, get<3>(I), get<5>(I));
+                        // Transform back
+                        inverse_ntt_negacyclic_harvey(get<5>(I), get<4>(I));
+                        // add c_0 to the result; note that destination should be in the same (NTT) form as encrypted
+                        add_poly_coeffmod(get<5>(I), get<0>(I), coeff_count, get<3>(I), get<5>(I));
+                    });
+            }
+        }
+        else
+        {
+            // put < (c_1 , c_2, ... , c_{count-1}) , (s,s^2,...,s^{count-1}) > mod q in destination
+            // Now do the dot product of encrypted_copy and the secret key array using NTT.
+            // The secret key powers are already NTT transformed.
+            SEAL_ALLOCATE_GET_POLY_ITER(encrypted_copy, encrypted_size - 1, coeff_count, coeff_modulus_size, pool);
+            set_poly_array(encrypted.data(1), encrypted_size - 1, coeff_count, coeff_modulus_size, encrypted_copy);
+
+            // Transform c_1, c_2, ... to NTT form unless they already are
+            if (!is_ntt_form)
+            {
+                ntt_negacyclic_harvey_lazy(encrypted_copy, encrypted_size - 1, ntt_tables);
+            }
+
+            // Compute dyadic product with secret power array
+            auto secret_key_array = PolyIter(secret_key_array_.get(), coeff_count, key_coeff_modulus_size);
+            SEAL_ITERATE(iter(encrypted_copy, secret_key_array), encrypted_size - 1, [&](auto I) {
+                dyadic_product_coeffmod(get<0>(I), get<1>(I), coeff_modulus_size, coeff_modulus, get<0>(I));
+            });
+            // Aggregate all polynomials together to complete the dot product
+            set_zero_poly(coeff_count, coeff_modulus_size, destination);
+            SEAL_ITERATE(encrypted_copy, encrypted_size - 1, [&](auto I) {
+                add_poly_coeffmod(destination, I, coeff_modulus_size, coeff_modulus, destination);
+            });
+
+            if (!is_ntt_form)
+            {
+                // If the input was not in NTT form, need to transform back
+                inverse_ntt_negacyclic_harvey(destination, coeff_modulus_size, ntt_tables);
+            }
+
+            // Finally add c_0 to the result; note that destination should be in the same (NTT) form as encrypted
+            add_poly_coeffmod(destination, *iter(encrypted), coeff_modulus_size, coeff_modulus, destination);
         }
     }
 
@@ -629,8 +657,6 @@ namespace seal
         destination.parms_id() = parms_id_zero;
 
         // Resize destination to appropriate size
-
-        destination.resize(rns_poly_uint64_count);
         destination.resize_gpu(rns_poly_uint64_count);
 
         // Do the dot product of encrypted and the secret key array using NTT.
@@ -667,12 +693,17 @@ namespace seal
         SEAL_ALLOCATE_ZERO_GET_RNS_ITER(tmp_dest_modq, coeff_count, coeff_modulus_size, pool);
 
         uint64_t *d_temp_dest_modq = nullptr;
-        checkCudaErrors(cudaMalloc((void **)&d_temp_dest_modq, coeff_count * coeff_modulus_size * sizeof(uint64_t)));
+        allocate_gpu<uint64_t>(&d_temp_dest_modq, coeff_count * coeff_modulus_size);
 
         // put < (c_1 , c_2, ... , c_{count-1}) , (s,s^2,...,s^{count-1}) > mod q in destination
         // Now do the dot product of encrypted_copy and the secret key array using NTT.
         // The secret key powers are already NTT transformed.
-        // dot_product_ct_sk_array(encrypted, tmp_dest_modq, pool_);
+
+        // Ciphertext encrypted_copy(encrypted);
+        // encrypted_copy.to_cpu();
+
+        // dot_product_ct_sk_array_origin(encrypted_copy, tmp_dest_modq, pool_);
+        // dot_product_ct_sk_array_origin(encrypted, tmp_dest_modq, pool_);
         dot_product_ct_sk_array_cuda(encrypted, d_temp_dest_modq, pool_);
 
         checkCudaErrors(cudaMemcpy(tmp_dest_modq, d_temp_dest_modq, coeff_count * coeff_modulus_size * sizeof(uint64_t), cudaMemcpyDeviceToHost));
@@ -683,11 +714,14 @@ namespace seal
 // 下边这个函数后续迁移，目标保证decrypt前不用搬数据到cpu
         // Divide scaling variant using BEHZ FullRNS techniques
         context_data.rns_tool()->decrypt_scale_and_round(tmp_dest_modq, destination.data(), pool);
+        // context_data.rns_tool()->decrypt_scale_and_round_cuda(d_temp_dest_modq, destination.d_data());
 
         // How many non-zero coefficients do we really have in the result?
         size_t plain_coeff_count = get_significant_uint64_count_uint(destination.data(), coeff_count);
 
         // Resize destination to appropriate size
         destination.resize(max(plain_coeff_count, size_t(1)));
+        deallocate_gpu<uint64_t>(&d_temp_dest_modq, coeff_count * coeff_modulus_size);
+
     }
 } // namespace seal

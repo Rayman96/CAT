@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #include "seal/ckks.h"
@@ -198,7 +198,7 @@ namespace sealtest
             }
         }
         {
-            size_t slots = 64;
+            size_t slots = 4096;
             parms.set_poly_modulus_degree(slots << 1);
             parms.set_coeff_modulus(CoeffModulus::Create(slots << 1, { 40, 40, 40, 40, 40 }));
             SEALContext context(parms, false, sec_level_type::none);
@@ -226,6 +226,9 @@ namespace sealtest
                 for (size_t i = 0; i < slots; ++i)
                 {
                     auto tmp = abs(values[i].real() - result[i].real());
+                    if (tmp >= 0.5){
+                        printf("i: %d, value:%f, result:%f\n", i, values[i].real(), result[i].real());
+                    }
                     ASSERT_TRUE(tmp < 0.5);
                 }
             }

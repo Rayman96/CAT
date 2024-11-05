@@ -1,7 +1,7 @@
-# Copyright (c) Microsoft Corporation. All rights reserved.
+# Copyright (c) IDEA Corporation. All rights reserved.
 # Licensed under the MIT license.
 
-Name: Microsoft GSL for Microsoft SEAL
+Name: Microsoft GSL for IDEA SEAL_GPU
 Version: @Microsoft.GSL_VERSION@
 Description: Guidelines Support Library
 

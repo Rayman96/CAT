@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #pragma once
@@ -13,6 +13,7 @@
 #include "seal/util/defines.h"
 #include "seal/util/polycore.h"
 #include "seal/util/helper.cuh"
+#include "seal/util/gpu_data.h"
 #include <algorithm>
 #include <functional>
 #include <stdexcept>
@@ -68,6 +69,11 @@ namespace seal
         */
         Plaintext(MemoryPoolHandle pool = MemoryManager::GetPool()) : data_(std::move(pool))
         {}
+
+
+        // ~Plaintext() {
+        //     deallocate_gpu<uint64_t>(&d_data_, d_capacity_);
+        // }
 
         /**
         Constructs a plaintext representing a constant polynomial 0. The coefficient
@@ -231,7 +237,9 @@ namespace seal
             scale_ = 1.0;
             data_.release();
 
-            deallocate_gpu<uint64_t>(&d_data_, d_capacity_);
+            // deallocate_gpu<uint64_t>(&d_data_, d_capacity_);
+            d_data_.release();
+
             // checkCudaErrors(cudaFree(d_data_));
             d_size_ = 0;
         }
@@ -259,24 +267,38 @@ namespace seal
 
         inline void resize_gpu(std::size_t new_size)
         {
-            if (new_size < d_capacity_){
+            if (new_size <= d_capacity_){
                 if (new_size > d_size_){
-                    checkCudaErrors(cudaMemset(d_data_ + d_size_, 0, (new_size - d_size_) * sizeof(uint64_t)));
+                    checkCudaErrors(cudaMemset(d_data_.data() + d_size_, 0, (new_size - d_size_) * sizeof(uint64_t)));
                 }
                 d_size_ = new_size;
+                coeff_count_ = new_size;
+                only_gpu_ = true;
                 return;
             }
 
-            uint64_t *new_d_data_ = nullptr;
-            allocate_gpu<uint64_t>(&new_d_data_, new_size);
+            // uint64_t *new_d_data_ = nullptr;
+            // allocate_gpu<uint64_t>(&new_d_data_, new_size);
+
+            std::shared_ptr<uint64_t> new_d_data_;
+            allocate_gpu<uint64_t>(new_d_data_, new_size);
+
             // checkCudaErrors(cudaMalloc((void **)&new_d_data_, new_size * sizeof(uint64_t)));
             if (d_size_ > 0){
-                checkCudaErrors(cudaMemcpy(new_d_data_, d_data_, d_size_ * sizeof(uint64_t), cudaMemcpyDeviceToDevice));
+                checkCudaErrors(cudaMemcpy(new_d_data_.get(), d_data_.data(), d_size_ * sizeof(uint64_t), cudaMemcpyDeviceToDevice));
                 // cudaFree(d_data_);
-                deallocate_gpu<uint64_t>(&d_data_, d_size_);
             }
-            checkCudaErrors(cudaMemset(new_d_data_ + d_size_, 0, (new_size - d_size_) * sizeof(uint64_t)));
-            d_data_ = std::move(new_d_data_);
+            if (d_capacity_ > 0){
+                // deallocate_gpu<uint64_t>(&d_data_, d_capacity_);
+                d_data_.release();
+
+            }
+            if (new_size > d_size_){
+                checkCudaErrors(cudaMemset(new_d_data_.get() + d_size_, 0, (new_size - d_size_) * sizeof(uint64_t)));
+            }
+            // d_data_ = new_d_data_;
+            d_data_.setData(new_d_data_);
+
             d_capacity_ = new_size;
             d_size_ = new_size;
 
@@ -417,36 +439,31 @@ namespace seal
 
         inline void d_data_malloc(size_t size)
         {
-            if (size > d_size_) {
-                allocate_gpu<uint64_t>(&d_data_, size);
-                // checkCudaErrors(cudaMalloc((void **)&d_data_, size * sizeof(uint64_t)));
-                d_size_ = size;
-            }
+            d_data_.alloc(size);
+            d_capacity_ = size;
         }
 
         SEAL_NODISCARD inline uint64_t *d_data() const noexcept
         {
-            return d_data_;
+            return d_data_.data();
         }
 
         SEAL_NODISCARD inline uint64_t *d_data()
         {
-            return d_data_;
+            return d_data_.data();
         }
 
         inline void to_gpu()
         {
-            printf("in to_gpu:\n");
             d_data_malloc(coeff_count_);
-            checkCudaErrors(cudaMemcpy(d_data_, data_.begin(), coeff_count_   * sizeof(uint64_t), cudaMemcpyHostToDevice));
+            checkCudaErrors(cudaMemcpy(d_data_.data(), data_.begin(), coeff_count_   * sizeof(uint64_t), cudaMemcpyHostToDevice));
             printInfo();
         }
 
         inline void to_cpu()
         {
-            printf("in to_cpu:\n");
             resize(coeff_count_);
-            checkCudaErrors(cudaMemcpy(data_.begin(), d_data_, coeff_count_ * sizeof(uint64_t), cudaMemcpyDeviceToHost));
+            checkCudaErrors(cudaMemcpy(data_.begin(), d_data_.data(), coeff_count_ * sizeof(uint64_t), cudaMemcpyDeviceToHost));
             printInfo();
         }
 
@@ -706,7 +723,7 @@ namespace seal
         @param[in] stream The stream to load the plaintext from
         @throws std::invalid_argument if the encryption parameters are not valid
         @throws std::logic_error if the data cannot be loaded by this version of
-        Microsoft SEAL, if the loaded data is invalid, or if decompression failed
+        IDEA SEAL_GPU, if the loaded data is invalid, or if decompression failed
         @throws std::runtime_error if I/O operations failed
         */
         inline std::streamoff unsafe_load(const SEALContext &context, std::istream &stream)
@@ -723,7 +740,7 @@ namespace seal
         @param[in] stream The stream to load the plaintext from
         @throws std::invalid_argument if the encryption parameters are not valid
         @throws std::logic_error if the data cannot be loaded by this version of
-        Microsoft SEAL, if the loaded data is invalid, or if decompression failed
+        IDEA SEAL_GPU, if the loaded data is invalid, or if decompression failed
         @throws std::runtime_error if I/O operations failed
         */
         inline std::streamoff load(const SEALContext &context, std::istream &stream)
@@ -773,7 +790,7 @@ namespace seal
         @throws std::invalid_argument if in is null or if size is too small to
         contain a SEALHeader
         @throws std::logic_error if the data cannot be loaded by this version of
-        Microsoft SEAL, if the loaded data is invalid, or if decompression failed
+        IDEA SEAL_GPU, if the loaded data is invalid, or if decompression failed
         @throws std::runtime_error if I/O operations failed
         */
         inline std::streamoff unsafe_load(const SEALContext &context, const seal_byte *in, std::size_t size)
@@ -793,7 +810,7 @@ namespace seal
         @throws std::invalid_argument if in is null or if size is too small to
         contain a SEALHeader
         @throws std::logic_error if the data cannot be loaded by this version of
-        Microsoft SEAL, if the loaded data is invalid, or if decompression failed
+        IDEA SEAL_GPU, if the loaded data is invalid, or if decompression failed
         @throws std::runtime_error if I/O operations failed
         */
         inline std::streamoff load(const SEALContext &context, const seal_byte *in, std::size_t size)
@@ -881,7 +898,7 @@ namespace seal
         DynArray<pt_coeff_type> data_;
 
     // 存放GPU数据
-        uint64_t *d_data_ = nullptr;
+        GPUData d_data_;
         uint64_t d_size_ = 0;
         uint64_t d_capacity_ = 0;
         bool only_gpu_;

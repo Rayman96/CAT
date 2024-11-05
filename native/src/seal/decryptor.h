@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #pragma once
@@ -125,6 +125,7 @@ namespace seal
         // Store result in destination in RNS form.
         // destination has the size of an RNS polynomial.
         void dot_product_ct_sk_array(const Ciphertext &encrypted, util::RNSIter destination, MemoryPoolHandle pool);
+        void dot_product_ct_sk_array_origin(const Ciphertext &encrypted, util::RNSIter destination, MemoryPoolHandle pool);
         void dot_product_ct_sk_array_cuda(const Ciphertext &encrypted, uint64_t *destination, MemoryPoolHandle pool);
 
 

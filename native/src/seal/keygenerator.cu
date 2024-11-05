@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 #include "seal/keygenerator.h"
 #include "seal/randomtostd.h"
@@ -44,6 +44,20 @@ namespace seal
             }
         }
     
+        __global__ void multiply_poly_scalar_coeffmod_kernel(
+            uint64_t *poly, size_t coeff_count, uint64_t operand, uint64_t quotient, const uint64_t modulus_value,
+            uint64_t *result)
+        {
+            size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+            while(idx < coeff_count){
+                unsigned long long tmp1, tmp2;
+                multiply_uint64_hw64_kernel(poly[idx], quotient, &tmp1);
+                tmp2 = operand * poly[idx] - tmp1 * modulus_value;
+                result[idx] = tmp2 >= modulus_value ? tmp2 - modulus_value : tmp2;
+                idx += blockDim.x * gridDim.x;
+            }
+
+        }
     } // namespace
 
     KeyGenerator::KeyGenerator(const SEALContext &context) : context_(context)
@@ -220,21 +234,6 @@ namespace seal
         secret_key_array_.acquire(secret_key_array);
     }
 
-    __global__ void multiply_poly_scalar_coeffmod_kernel(
-        uint64_t *poly, size_t coeff_count, uint64_t operand, uint64_t quotient, const uint64_t modulus_value,
-        uint64_t *result)
-    {
-        size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
-        while(idx < coeff_count){
-            unsigned long long tmp1, tmp2;
-            multiply_uint64_hw64_kernel(poly[idx], quotient, &tmp1);
-            tmp2 = operand * poly[idx] - tmp1 * modulus_value;
-            result[idx] = tmp2 >= modulus_value ? tmp2 - modulus_value : tmp2;
-            idx += blockDim.x * gridDim.x;
-        }
-
-    }
-
     void KeyGenerator::generate_one_kswitch_key(ConstRNSIter new_key, vector<PublicKey> &destination, bool save_seed)
     {
         if (!context_.using_keyswitching())
@@ -348,52 +347,6 @@ namespace seal
         deallocate_gpu<uint64_t>(&d_temp, coeff_count);
 
     }
-
-
-    // void KeyGenerator::generate_one_kswitch_key(ConstRNSIter new_key, vector<PublicKey> &destination, bool save_seed)
-    // {
-    //     if (!context_.using_keyswitching())
-    //     {
-    //         throw logic_error("keyswitching is not supported by the context");
-    //     }
-
-    //     printf("goes generate_one_kswitch_key\n");
-    //     size_t coeff_count = context_.key_context_data()->parms().poly_modulus_degree();
-    //     size_t decomp_mod_count = context_.first_context_data()->parms().coeff_modulus().size();
-    //     auto &key_context_data = *context_.key_context_data();
-    //     auto &key_parms = key_context_data.parms();
-    //     auto &key_modulus = key_parms.coeff_modulus();
-
-    //     // Size check
-    //     if (!product_fits_in(coeff_count, decomp_mod_count))
-    //     {
-    //         throw logic_error("invalid parameters");
-    //     }
-
-    //     // KSwitchKeys data allocated from pool given by MemoryManager::GetPool.
-    //     destination.resize(decomp_mod_count);
-
-    //     SEAL_ITERATE(iter(new_key, key_modulus, destination, size_t(0)), decomp_mod_count, [&](auto I) {
-    //         SEAL_ALLOCATE_GET_COEFF_ITER(temp, coeff_count, pool_);
-    //         encrypt_zero_symmetric(
-    //             secret_key_, context_, key_context_data.parms_id(), true, save_seed, get<2>(I).data());
-    //         uint64_t factor = barrett_reduce_64(key_modulus.back().value(), get<1>(I));
-    //         multiply_poly_scalar_coeffmod(get<0>(I), coeff_count, factor, get<1>(I), temp);
-
-    //         // We use the SeqIter at get<3>(I) to find the i-th RNS factor of the first destination polynomial.
-    //         CoeffIter destination_iter = (*iter(get<2>(I).data()))[get<3>(I)];
-    //         add_poly_coeffmod(destination_iter, temp, coeff_count, get<1>(I), destination_iter);
-    //     });
-
-    //     for(auto &i : destination){
-    //         // i.data().d_data_malloc(2 * coeff_count * key_modulus.size());
-    //         i.data().resize_gpu(i.data().size(), coeff_count, key_modulus.size());
-    //         checkCudaErrors(cudaMemcpy(i.data().d_data(), i.data().data(),i.data().size() * coeff_count * key_modulus.size() * sizeof(uint64_t), cudaMemcpyHostToDevice));
-    //     }
-
-    // }
-
-
 
     PublicKey KeyGenerator::generate_pk(bool save_seed) const
     {
@@ -509,12 +462,10 @@ namespace seal
             }
 
             // Rotate secret key for each coeff_modulus
-            for(int i = 0; i < coeff_modulus_size; i++){
-                galois_tool->apply_galois_ntt_cuda(secret_key_.data().d_data() + i * coeff_count, 
-                                                    galois_elt, 
-                                                    d_rotate_sceret_key + i * coeff_count);
-            }
-
+            galois_tool->apply_galois_ntt_batch_cuda(secret_key_.data().d_data(), 
+                                                    galois_elt,  
+                                                    d_rotate_sceret_key,
+                                                    coeff_modulus_size);
 
             // Initialize Galois key
             // This is the location in the galois_keys vector

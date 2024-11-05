@@ -1,14 +1,14 @@
-# Copyright (c) Microsoft Corporation. All rights reserved.
+# Copyright (c) IDEA Corporation. All rights reserved.
 # Licensed under the MIT license.
 
 # Exports target SEAL::seal
 #
 # Creates variables:
 #
-#   SEAL_FOUND : If either a static or a shared Microsoft SEAL was found
-#   SEAL_STATIC_FOUND : If a static Microsoft SEAL library was found
-#   SEAL_SHARED_FOUND : If a shared Microsoft SEAL library was found
-#   SEAL_C_FOUND : If a Microsoft SEAL C export library was found
+#   SEAL_FOUND : If either a static or a shared IDEA SEAL_GPU was found
+#   SEAL_STATIC_FOUND : If a static IDEA SEAL_GPU library was found
+#   SEAL_SHARED_FOUND : If a shared IDEA SEAL_GPU library was found
+#   SEAL_C_FOUND : If a IDEA SEAL_GPU C export library was found
 #   SEAL_VERSION : The full version number
 #   SEAL_VERSION_MAJOR : The major version number
 #   SEAL_VERSION_MINOR : The minor version number
@@ -132,12 +132,12 @@ endif()
 
 if(SEAL_FOUND)
     if(NOT SEAL_FIND_QUIETLY)
-        message(STATUS "Microsoft SEAL -> Version ${SEAL_VERSION} detected")
+        message(STATUS "IDEA SEAL_GPU -> Version ${SEAL_VERSION} detected")
     endif()
     if(SEAL_DEBUG AND NOT SEAL_FIND_QUIETLY)
-        message(STATUS "Performance warning: Microsoft SEAL compiled in debug mode")
+        message(STATUS "Performance warning: IDEA SEAL_GPU compiled in debug mode")
     endif()
-    set(SEAL_TARGETS_AVAILABLE "Microsoft SEAL -> Targets available:")
+    set(SEAL_TARGETS_AVAILABLE "IDEA SEAL_GPU -> Targets available:")
 
     if(SEAL_STATIC_FOUND)
         string(APPEND SEAL_TARGETS_AVAILABLE " SEAL::seal")
@@ -153,6 +153,6 @@ if(SEAL_FOUND)
     endif()
 else()
     if(NOT SEAL_FIND_QUIETLY)
-        message(STATUS "Microsoft SEAL -> NOT FOUND")
+        message(STATUS "IDEA SEAL_GPU -> NOT FOUND")
     endif()
 endif()

@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #pragma once
@@ -119,7 +119,7 @@ namespace seal
         @param[in] stream The stream to load the PublicKey from
         @throws std::invalid_argument if the encryption parameters are not valid
         @throws std::logic_error if the data cannot be loaded by this version of
-        Microsoft SEAL, if the loaded data is invalid, or if decompression failed
+        IDEA SEAL_GPU, if the loaded data is invalid, or if decompression failed
         @throws std::runtime_error if I/O operations failed
         */
         inline std::streamoff unsafe_load(const SEALContext &context, std::istream &stream)
@@ -138,7 +138,7 @@ namespace seal
         @param[in] stream The stream to load the PublicKey from
         @throws std::invalid_argument if the encryption parameters are not valid
         @throws std::logic_error if the data cannot be loaded by this version of
-        Microsoft SEAL, if the loaded data is invalid, or if decompression failed
+        IDEA SEAL_GPU, if the loaded data is invalid, or if decompression failed
         @throws std::runtime_error if I/O operations failed
         */
         inline std::streamoff load(const SEALContext &context, std::istream &stream)
@@ -185,7 +185,7 @@ namespace seal
         @throws std::invalid_argument if in is null or if size is too small to
         contain a SEALHeader
         @throws std::logic_error if the data cannot be loaded by this version of
-        Microsoft SEAL, if the loaded data is invalid, or if decompression failed
+        IDEA SEAL_GPU, if the loaded data is invalid, or if decompression failed
         @throws std::runtime_error if I/O operations failed
         */
         inline std::streamoff unsafe_load(const SEALContext &context, const seal_byte *in, std::size_t size)
@@ -194,6 +194,11 @@ namespace seal
             auto in_size = new_pk.unsafe_load(context, in, size);
             std::swap(pk_, new_pk);
             return in_size;
+        }
+
+        void to_cpu()
+        {
+            pk_.to_cpu();
         }
 
         /**
@@ -208,7 +213,7 @@ namespace seal
         @throws std::invalid_argument if in is null or if size is too small to
         contain a SEALHeader
         @throws std::logic_error if the data cannot be loaded by this version of
-        Microsoft SEAL, if the loaded data is invalid, or if decompression failed
+        IDEA SEAL_GPU, if the loaded data is invalid, or if decompression failed
         @throws std::runtime_error if I/O operations failed
         */
         inline std::streamoff load(const SEALContext &context, const seal_byte *in, std::size_t size)

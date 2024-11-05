@@ -1,8 +1,8 @@
 THIRD-PARTY SOFTWARE NOTICES AND INFORMATION
 
 This software incorporates components from the projects listed below. The original copyright notices
-and the licenses under which Microsoft received such components are set forth below and are provided for
-informational purposes only. Microsoft reserves all rights not expressly granted herein, whether by
+and the licenses under which IDEA received such components are set forth below and are provided for
+informational purposes only. IDEA reserves all rights not expressly granted herein, whether by
 implication, estoppel or otherwise.
 
 This software includes parts of the BLAKE2 library (https://github.com/BLAKE2/BLAKE2).
@@ -10,6 +10,9 @@ The BLAKE2 library is licensed under CC0 Universal, version 1.0. You can find a 
 
 This software includes parts of the Kyber library (https://github.com/pq-crystals/kyber).
 The Kyber library is licensed under CC0 Universal, version 1.0. You can find a copy of this license at https://creativecommons.org/publicdomain/zero/1.0/legalcode
+
+This software includes parts of the SEAL library(https://github.com/microsoft/SEAL).
+The SEAL library is licensed under MIT License. You can find a copy of this license at https://opensource.org/licenses/MIT
 
 This software includes parts of the ZSTD library, version 1.4.5 (https://github.com/facebook/zstd):
 ZSTD NOTICES AND INFORMATION BEGIN HERE

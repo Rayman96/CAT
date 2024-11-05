@@ -1,4 +1,4 @@
-# Copyright (c) Microsoft Corporation. All rights reserved.
+# Copyright (c) IDEA Corporation. All rights reserved.
 # Licensed under the MIT license.
 
 # This cache-initialization file will be used to enable functions when cross-compiling

@@ -15,7 +15,7 @@
 
 /*
 Minor modifications to the original file have been made and marked
-as `Microsoft SEAL edit: ...`. The sole purpose of these edits is to silence
+as `IDEA SEAL_GPU edit: ...`. The sole purpose of these edits is to silence
 misleading warnings in Visual Studio.
 */
 
@@ -143,7 +143,7 @@ extern "C"
     /* Padded structs result in a compile-time error */
     enum
     {
-        /* Microsoft SEAL edit: explicit cast to silence warnings. */
+        /* IDEA SEAL_GPU edit: explicit cast to silence warnings. */
         BLAKE2_DUMMY_1 = 1 / (int)(sizeof(blake2s_param) == BLAKE2S_OUTBYTES),
         BLAKE2_DUMMY_2 = 1 / (int)(sizeof(blake2b_param) == BLAKE2B_OUTBYTES)
     };

@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #pragma once
@@ -12,6 +12,7 @@
 #include "seal/version.h"
 #include "seal/util/common.h"
 #include "seal/util/defines.h"
+#include "seal/util/gpu_data.h"
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -24,7 +25,7 @@ namespace seal
 {
     /**
     Class to store a ciphertext element. The data for a ciphertext consists
-    of two or more polynomials, which are in Microsoft SEAL stored in a CRT
+    of two or more polynomials, which are in IDEA SEAL_GPU stored in a CRT
     form with respect to the factors of the coefficient modulus. This data
     itself is not meant to be modified directly by the user, but is instead
     operated on by functions in the Evaluator class. The size of the backing
@@ -278,24 +279,29 @@ namespace seal
         }
 
         inline void resize_gpu(size_t size) {
-            if (size < d_capacity_){
+            if (size <= d_capacity_){
                 if (size > d_size_){
-                    checkCudaErrors(cudaMemset(d_data_ + d_size_, 0, (size - d_size_) * sizeof(uint64_t)));
+                    checkCudaErrors(cudaMemset(d_data_.data() + d_size_, 0, (size - d_size_) * sizeof(uint64_t)));
                 }
                 d_size_ = size;
                 return;
             }
 
-            uint64_t *new_d_data_ = nullptr;
-            allocate_gpu<uint64_t>(&new_d_data_, size);
-            // checkCudaErrors(cudaMalloc((void **)&new_d_data_, size * sizeof(uint64_t)));
+            std::shared_ptr<uint64_t> new_d_data_;
+            allocate_gpu<uint64_t>(new_d_data_, size);
+
             if (d_size_ > 0){
-                checkCudaErrors(cudaMemcpy(new_d_data_, d_data_, d_size_ * sizeof(uint64_t), cudaMemcpyDeviceToDevice));
-                // checkCudaErrors(cudaFree(d_data_));
-                deallocate_gpu<uint64_t>(&d_data_, d_size_);
+                checkCudaErrors(cudaMemcpy(new_d_data_.get(), d_data_.data(), d_size_ * sizeof(uint64_t), cudaMemcpyDeviceToDevice));
             }
-            checkCudaErrors(cudaMemset(new_d_data_ + d_size_, 0, (size - d_size_) * sizeof(uint64_t)));
-            d_data_ = new_d_data_;
+            if (d_capacity_ > 0){
+                d_data_.release();
+            }
+
+            if (size > d_size_){
+                checkCudaErrors(cudaMemset(new_d_data_.get() + d_size_, 0, (size - d_size_) * sizeof(uint64_t)));
+            }
+
+            d_data_.setData(new_d_data_);
             d_capacity_ = size;
             d_size_ = size;
             
@@ -317,9 +323,11 @@ namespace seal
             scale_ = 1.0;
             correction_factor_ = 1;
             data_.release();
-            deallocate_gpu<uint64_t>(&d_data_, d_capacity_);
+            // deallocate_gpu<uint64_t>(&d_data_, d_capacity_);
+            d_data_.release();
             // checkCudaErrors(cudaFree(d_data_));
             d_size_ = 0;
+            d_capacity_ = 0;
         }
 
         /**
@@ -328,6 +336,7 @@ namespace seal
         @param[in] assign The ciphertext to copy from
         */
         Ciphertext &operator=(const Ciphertext &assign);
+        // Ciphertext &operator=(Ciphertext &assign);
 
         /**
         Moves a given ciphertext to the current one.
@@ -346,17 +355,17 @@ namespace seal
 
         SEAL_NODISCARD inline uint64_t *d_data() noexcept
         {
-            return d_data_;
+            return d_data_.data();
         }
 
         inline void to_cpu() noexcept
         {
-            auto poly_uint64_count = util::mul_safe(poly_modulus_degree_, coeff_modulus_size_);
-            // resize(size_);
+            auto new_data(util::allocate<std::uint64_t>(d_size_, MemoryManager::GetPool()));
+            std::swap(data_.data_, new_data);
 
             checkCudaErrors(cudaMemcpy(data_.begin(), 
-                                        d_data_, 
-                                        size_ * poly_uint64_count * sizeof(std::uint64_t), 
+                                        d_data_.data(), 
+                                        d_size_ * sizeof(std::uint64_t), 
                                         cudaMemcpyDeviceToHost));
         }
 
@@ -365,7 +374,7 @@ namespace seal
             auto poly_uint64_count = util::mul_safe(poly_modulus_degree_, coeff_modulus_size_);
             resize_gpu(size_, poly_modulus_degree_,  coeff_modulus_size_);
 
-            checkCudaErrors(cudaMemcpy(d_data_, 
+            checkCudaErrors(cudaMemcpy(d_data_.data(), 
                                         data_.begin(), 
                                         size_ * poly_uint64_count *sizeof(uint64_t), 
                                         cudaMemcpyHostToDevice));
@@ -373,13 +382,15 @@ namespace seal
 
         SEAL_NODISCARD inline uint64_t *d_data() const noexcept
         {
-            return d_data_;
+            return d_data_.data();
         }
 
         inline void d_data_malloc(size_t size)
         {
-            checkCudaErrors(cudaMalloc((void **)&d_data_, 10 * size * sizeof(uint64_t)));
-            d_capacity_ = 10 * size;
+            // checkCudaErrors(cudaMalloc((void **)&d_data_, 10 * size * sizeof(uint64_t)));
+            // allocate_gpu<uint64_t>(&d_data_, size);
+            d_data_.alloc(size);
+            d_capacity_ = size;
         }
 
         /**
@@ -400,7 +411,7 @@ namespace seal
 
         /**
         Returns a pointer to a particular polynomial in the ciphertext
-        data. Note that Microsoft SEAL stores each polynomial in the ciphertext
+        data. Note that IDEA SEAL_GPU stores each polynomial in the ciphertext
         modulo all of the K primes in the coefficient modulus. The pointer
         returned by this function is to the beginning (constant coefficient)
         of the first one of these K polynomials.
@@ -425,7 +436,7 @@ namespace seal
 
         /**
         Returns a const pointer to a particular polynomial in the
-        ciphertext data. Note that Microsoft SEAL stores each polynomial in the
+        ciphertext data. Note that IDEA SEAL_GPU stores each polynomial in the
         ciphertext modulo all of the K primes in the coefficient modulus.
         The pointer returned by this function is to the beginning
         (constant coefficient) of the first one of these K polynomials.
@@ -570,7 +581,7 @@ namespace seal
         @param[in] stream The stream to load the ciphertext from
         @throws std::invalid_argument if the encryption parameters are not valid
         @throws std::logic_error if the data cannot be loaded by this version of
-        Microsoft SEAL, if the loaded data is invalid, or if decompression failed
+        IDEA SEAL_GPU, if the loaded data is invalid, or if decompression failed
         @throws std::runtime_error if I/O operations failed
         */
         inline std::streamoff unsafe_load(const SEALContext &context, std::istream &stream)
@@ -587,7 +598,7 @@ namespace seal
         @param[in] stream The stream to load the ciphertext from
         @throws std::invalid_argument if the encryption parameters are not valid
         @throws std::logic_error if the data cannot be loaded by this version of
-        Microsoft SEAL, if the loaded data is invalid, or if decompression failed
+        IDEA SEAL_GPU, if the loaded data is invalid, or if decompression failed
         @throws std::runtime_error if I/O operations failed
         */
         inline std::streamoff load(const SEALContext &context, std::istream &stream)
@@ -637,7 +648,7 @@ namespace seal
         @throws std::invalid_argument if in is null or if size is too small to
         contain a SEALHeader
         @throws std::logic_error if the data cannot be loaded by this version of
-        Microsoft SEAL, if the loaded data is invalid, or if decompression failed
+        IDEA SEAL_GPU, if the loaded data is invalid, or if decompression failed
         @throws std::runtime_error if I/O operations failed
         */
         inline std::streamoff unsafe_load(const SEALContext &context, const seal_byte *in, std::size_t size)
@@ -658,7 +669,7 @@ namespace seal
         @throws std::invalid_argument if in is null or if size is too small to
         contain a SEALHeader
         @throws std::logic_error if the data cannot be loaded by this version of
-        Microsoft SEAL, if the loaded data is invalid, or if decompression failed
+        IDEA SEAL_GPU, if the loaded data is invalid, or if decompression failed
         @throws std::runtime_error if I/O operations failed
         */
         inline std::streamoff load(const SEALContext &context, const seal_byte *in, std::size_t size)
@@ -790,7 +801,9 @@ namespace seal
         DynArray<ct_coeff_type> data_;
 
         // GPU数据
-        uint64_t *d_data_ = nullptr;
+        // uint64_t *d_data_ = nullptr;
+
+        GPUData d_data_;
         size_t d_size_ = 0;
         size_t d_capacity_ = 0;
     };

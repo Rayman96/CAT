@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #pragma once
@@ -251,7 +251,6 @@ namespace seal
             // One more subtraction is enough
             return tmp3 >= modulus_value ? tmp3 - modulus_value : tmp3;
         }
-        
         
         template <typename T, typename = std::enable_if_t<is_uint64_v<T>>>
         __device__ std::uint64_t barrett_reduce_128_kernel2(const T *input, uint64_t modulus_value, uint64_t *ratio)

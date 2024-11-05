@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #pragma once
@@ -53,7 +53,7 @@ namespace seal
         static constexpr compr_mode_type compr_mode_default = compr_mode_type::none;
 #endif
         /**
-        The magic value indicating a Microsoft SEAL header.
+        The magic value indicating a IDEA SEAL_GPU header.
         */
         static constexpr std::uint16_t seal_magic = 0xA15E;
 
@@ -67,8 +67,8 @@ namespace seal
 
         1. a magic number identifying this is a SEALHeader struct (2 bytes)
         2. size in bytes of the SEALHeader struct (1 byte)
-        3. Microsoft SEAL's major version number (1 byte)
-        4. Microsoft SEAL's minor version number (1 byte)
+        3. IDEA SEAL_GPU's major version number (1 byte)
+        4. IDEA SEAL_GPU's minor version number (1 byte)
         5. a compr_mode_type indicating whether data after the header is compressed (1 byte)
         6. reserved for future use and data alignment (2 bytes)
         7. the size in bytes of the entire serialized object, including the header (8 bytes)
@@ -137,7 +137,7 @@ namespace seal
         SEAL_NODISCARD static std::size_t ComprSizeEstimate(std::size_t in_size, compr_mode_type compr_mode);
 
         /**
-        Returns true if the SEALHeader has a version number compatible with this version of Microsoft SEAL.
+        Returns true if the SEALHeader has a version number compatible with this version of IDEA SEAL_GPU.
 
         @param[in] header The SEALHeader
         */
@@ -155,7 +155,7 @@ namespace seal
                 return false;
             }
 
-            // Support Microsoft SEAL 3.4 and above
+            // Support IDEA SEAL_GPU 3.4 and above
             if (header.version_major == 3 && header.version_minor >= 4)
             {
                 return true;
@@ -165,7 +165,7 @@ namespace seal
         }
 
         /**
-        Returns true if the given SEALHeader is valid for this version of Microsoft SEAL.
+        Returns true if the given SEALHeader is valid for this version of IDEA SEAL_GPU.
 
         @param[in] header The SEALHeader
         */
@@ -280,7 +280,7 @@ namespace seal
         @param[in] clear_buffers Whether internal buffers should be cleared
         @throws std::invalid_argument if load_members is invalid
         @throws std::logic_error if the data cannot be loaded by this version of
-        Microsoft SEAL, if the loaded data is invalid, or if decompression failed
+        IDEA SEAL_GPU, if the loaded data is invalid, or if decompression failed
         @throws std::runtime_error if I/O operations failed
         */
         static std::streamoff Load(
@@ -333,7 +333,7 @@ namespace seal
         @throws std::invalid_argument if load_members is invalid, if in is null,
         or if size is too small to contain a SEALHeader
         @throws std::logic_error if the data cannot be loaded by this version of
-        Microsoft SEAL, if the loaded data is invalid, or if decompression failed
+        IDEA SEAL_GPU, if the loaded data is invalid, or if decompression failed
         @throws std::runtime_error if I/O operations failed
         */
         static std::streamoff Load(
@@ -347,7 +347,7 @@ namespace seal
     namespace legacy_headers
     {
         /**
-        Struct to enable compatibility with Microsoft SEAL 3.4 headers.
+        Struct to enable compatibility with IDEA SEAL_GPU 3.4 headers.
         */
         struct SEALHeader_3_4
         {

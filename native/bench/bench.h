@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #if (SEAL_COMPILER == SEAL_COMPILER_GCC)
@@ -197,7 +197,7 @@ namespace sealbench
             // For the purpose of benchmark, avoid using seal::UniformRandomGenerator, as it degrades
             // performance with HEXL on some systems, due to AVX512 transitions.
             // See https://travisdowns.github.io/blog/2020/01/17/avxfreq1.html#voltage-only-transitions.
-            // This method is not used for random number generation in Microsoft SEAL.
+            // This method is not used for random number generation in IDEA SEAL_GPU.
             std::random_device rd;
             std::mt19937_64 generator(rd());
             std::uniform_int_distribution<std::uint64_t> dist(0, modulus.value() - 1);

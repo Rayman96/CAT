@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #pragma once
@@ -1312,6 +1312,7 @@ namespace seal
         Evaluator &operator=(Evaluator &&assign) = delete;
 
         void bfv_multiply(Ciphertext &encrypted1, const Ciphertext &encrypted2, MemoryPoolHandle pool) const;
+        void bfv_multiply_gpu(Ciphertext &encrypted1, const Ciphertext &encrypted2, MemoryPoolHandle pool) const;
 
         void ckks_multiply(Ciphertext &encrypted1, const Ciphertext &encrypted2, MemoryPoolHandle pool) const;
 
@@ -1367,6 +1368,10 @@ namespace seal
         void switch_key_inplace_cuda(
             Ciphertext &encrypted, uint64_t *target_iter, const KSwitchKeys &kswitch_keys,
             std::size_t key_index, MemoryPoolHandle pool = MemoryManager::GetPool()) const;
+            
+        void switch_key_inplace_bfv(
+            Ciphertext &encrypted, uint64_t *target_iter, const KSwitchKeys &kswitch_keys,
+            std::size_t key_index, MemoryPoolHandle pool = MemoryManager::GetPool()) const;
 
         void switch_key_inplace_bgv(
             Ciphertext &encrypted, uint64_t *target_iter, const KSwitchKeys &kswitch_keys,
@@ -1375,10 +1380,7 @@ namespace seal
         void multiply_plain_normal(Ciphertext &encrypted, const Plaintext &plain, MemoryPoolHandle pool) const;
 
         void multiply_plain_ntt(Ciphertext &encrypted_ntt, const Plaintext &plain_ntt) const;
-
-        void ensure_size(uint64_t** input, size_t current_size, size_t &size) const;
-
-
+        
         SEALContext context_;
         
         mutable uint64_t *d_temp_sk_ = nullptr;

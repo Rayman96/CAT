@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #pragma once
@@ -23,20 +23,6 @@ namespace seal
     namespace util
     {
         uint64_t power_m(uint64_t x, uint64_t n, const Modulus &modulus);
-        
-        // __device__ inline uint64_t multiply_add_uint_mod_kernel(
-        //     uint64_t operand1, uint64_t operand2, uint64_t operand3, const uint64_t modulus, uint64_t ratio0,
-        //     uint64_t ratio1)
-        // {
-        //     // Lazy reduction
-        //     unsigned long long temp[2];
-        //     multiply_uint64_kernel(operand1, operand2, temp);
-        //     temp[1] += add_uint64_kernel(temp[0], operand3, temp);
-        //     uint64_t ratio[2];
-        //     ratio[0] = ratio0;
-        //     ratio[1] = ratio1;
-        //     return barrett_reduce_128_kernel2(temp, modulus, ratio);
-        // }
 
         __device__ inline uint64_t dot_product_mod_kernel(
             std::uint64_t *operand1, std::uint64_t *operand2, std::size_t count, uint64_t modulus, uint64_t *ratio){
@@ -450,6 +436,11 @@ namespace seal
                 return d_base_Bsk_root_powers_;
             }
 
+            SEAL_NODISCARD inline uint64_t *d_base_Bsk_inv_root_powers() const noexcept
+            {
+                return d_base_Bsk_inv_root_powers_;
+            }
+
             SEAL_NODISCARD inline uint64_t *bae_Bsk_root_power() const noexcept
             {
                 return d_base_Bsk_root_powers_;
@@ -607,6 +598,8 @@ namespace seal
 
             uint64_t *d_base_Bsk_root_powers_ = nullptr;
 
+            uint64_t *d_base_Bsk_inv_root_powers_ = nullptr;
+
             uint64_t *d_baes_Bsk_bit_count_;
 
             Modulus m_tilde_;
@@ -636,14 +629,6 @@ namespace seal
             uint64_t *d_inv_q_last_mod_q_operand_ = nullptr;
 
             uint64_t *d_inv_q_last_mod_q_quotient_ = nullptr;
-
-            mutable uint64_t *d_temp_ = nullptr;
-
-            mutable uint64_t *d_input_m_tilde_ = nullptr;
-
-            mutable size_t d_temp_size_ = 0;
-
-            mutable size_t d_input_m_tilde_size_ = 0;
 
 
         };

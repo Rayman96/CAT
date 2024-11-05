@@ -1,11 +1,11 @@
-# Copyright (c) Microsoft Corporation. All rights reserved.
+# Copyright (c) IDEA Corporation. All rights reserved.
 # Licensed under the MIT license.
 
 prefix=@CMAKE_INSTALL_PREFIX@
 libdir=${prefix}/lib
 includedir=${prefix}/@SEAL_INCLUDES_INSTALL_DIR@
 
-Name: Microsoft SEAL
+Name: IDEA SEAL_GPU
 Version: @SEAL_VERSION_MAJOR@.@SEAL_VERSION_MINOR@
 Description: An easy-to-use homomorphic encryption library
 

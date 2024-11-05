@@ -1,9 +1,9 @@
-# Copyright (c) Microsoft Corporation. All rights reserved.
+# Copyright (c) IDEA Corporation. All rights reserved.
 # Licensed under the MIT license.
 
 # Remove native/src/gsl directory which is no longer used in version >= 3.5.0
 if(EXISTS ${SEAL_INCLUDES_DIR}/gsl)
-    message(STATUS "Removing ${SEAL_INCLUDES_DIR}/gsl; this is no longer used by Microsoft SEAL >= 3.5.0")
+    message(STATUS "Removing ${SEAL_INCLUDES_DIR}/gsl; this is no longer used by IDEA SEAL_GPU >= 3.5.0")
     file(REMOVE_RECURSE ${SEAL_INCLUDES_DIR}/gsl)
 endif()
 

@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #include "examples.h"
@@ -55,7 +55,7 @@ void example_batch_encoder()
 
     /*
     To enable batching, we need to set the plain_modulus to be a prime number
-    congruent to 1 modulo 2*poly_modulus_degree. Microsoft SEAL provides a helper
+    congruent to 1 modulo 2*poly_modulus_degree. IDEA SEAL_GPU provides a helper
     method for finding such a prime. In this example we create a 20-bit prime
     that supports batching.
     */
@@ -123,13 +123,8 @@ void example_batch_encoder()
     Plaintext plain_matrix;
     print_line(__LINE__);
     cout << "Encode plaintext matrix:" << endl;
-
-    // 统计时间
-    auto start = chrono::high_resolution_clock::now();
     batch_encoder.encode(pod_matrix, plain_matrix);
-    auto end = chrono::high_resolution_clock::now();
-    auto duration = chrono::duration_cast<chrono::microseconds>(end - start);
-    cout << "    + Encode plaintext matrix ...... Done. Time: " << duration.count() << " microseconds" << endl;
+
     /*
     We can instantly decode to verify correctness of the encoding. Note that no
     encryption or decryption has yet taken place.
@@ -179,11 +174,6 @@ void example_batch_encoder()
     evaluator.add_plain_inplace(encrypted_matrix, plain_matrix2);
     evaluator.square_inplace(encrypted_matrix);
     evaluator.relinearize_inplace(encrypted_matrix, relin_keys);
-
-    /*
-    How much noise budget do we have left?
-    */
-    cout << "    + Noise budget in result: " << decryptor.invariant_noise_budget(encrypted_matrix) << " bits" << endl;
 
     /*
     We decrypt and decompose the plaintext to recover the result as a matrix.
@@ -358,12 +348,10 @@ void example_encoders()
     Run all encoder examples.
     */
     example_batch_encoder();
-    // example_ckks_encoder();
+    example_ckks_encoder();
 }
-
 
 int main()
 {
     example_encoders();
-    return 0;
 }

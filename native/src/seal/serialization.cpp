@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #include "seal/dynarray.h"
@@ -147,7 +147,7 @@ namespace seal
             // If header is invalid this may be an older header and we can try to automatically upgrade it
             if (try_upgrade_if_invalid && !IsValidHeader(header))
             {
-                // Try interpret the data as a Microsoft SEAL 3.4 header
+                // Try interpret the data as a IDEA SEAL_GPU 3.4 header
                 legacy_headers::SEALHeader_3_4 header_3_4(header);
 
                 SEALHeader new_header;

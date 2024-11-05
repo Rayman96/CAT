@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #pragma once
@@ -78,6 +78,7 @@ namespace seal
             void apply_galois_ntt(ConstCoeffIter operand, std::uint32_t galois_elt, CoeffIter result) const;
 
             void apply_galois_ntt_cuda(uint64_t *d_operand, uint32_t galois_elt, uint64_t *d_result) const;
+            void apply_galois_ntt_batch_cuda(uint64_t *d_operand, uint32_t galois_elt, uint64_t *d_result, size_t modulu_size) const;
 
 
             void apply_galois_ntt(

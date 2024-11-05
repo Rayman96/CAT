@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #include "seal/ciphertext.cuh"
@@ -29,8 +29,9 @@ namespace seal
         {
             // Are the parameters valid for the plaintext?
             auto context_data_ptr = context.get_context_data(in.parms_id());
-            if (!context_data_ptr)
+            if (!context_data_ptr && !in.only_gpu())
             {
+                printf("plain error 1\n");
                 return false;
             }
 
@@ -38,6 +39,7 @@ namespace seal
             bool is_parms_pure_key = context_data_ptr->chain_index() > context.first_context_data()->chain_index();
             if (!allow_pure_key_levels && is_parms_pure_key)
             {
+                 printf("plain error 2\n");
                 return false;
             }
 
@@ -48,6 +50,7 @@ namespace seal
             // Check that coeff_count is appropriately set
             if (mul_safe(coeff_modulus.size(), poly_modulus_degree) != in.coeff_count())
             {
+                printf("plain error 3\n");
                 return false;
             }
         }

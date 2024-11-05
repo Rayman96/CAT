@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #pragma once
@@ -32,7 +32,7 @@ namespace seal
     } // namespace util
 
     /**
-    A dynamic array for storing objects allocated from a Microsoft SEAL memory
+    A dynamic array for storing objects allocated from a IDEA SEAL_GPU memory
     pool. The DynArray class is mainly intended for internal use and provides
     the underlying data structure for Plaintext and Ciphertext classes.
 
@@ -601,7 +601,7 @@ namespace seal
         @param[in] stream The stream to load the DynArray from
         @param[in] in_size_bound A bound on the size of the loaded DynArray
         @throws std::logic_error if the data cannot be loaded by this version of
-        Microsoft SEAL, if the loaded data is invalid, if decompression failed,
+        IDEA SEAL_GPU, if the loaded data is invalid, if decompression failed,
         or if the loaded size exceeds in_size_bound
         @throws std::logic_error if the loaded data is invalid, if the loaded size
         exceeds in_size_bound, or if decompression failed
@@ -649,7 +649,7 @@ namespace seal
         @throws std::invalid_argument if in is null or if size is too small to
         contain a SEALHeader
         @throws std::logic_error if the data cannot be loaded by this version of
-        Microsoft SEAL, if the loaded data is invalid, if decompression failed,
+        IDEA SEAL_GPU, if the loaded data is invalid, if decompression failed,
         or if the loaded size exceeds in_size_bound
         @throws std::runtime_error if I/O operations failed
         */

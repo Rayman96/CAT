@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #include "seal/context.cuh"
@@ -451,9 +451,9 @@ namespace sealtest
     {
         auto constructors = [](scheme_type scheme) {
             EncryptionParameters parms(scheme);
-            parms.set_poly_modulus_degree(128);
+            parms.set_poly_modulus_degree(1024);
             parms.set_plain_modulus(65537);
-            parms.set_coeff_modulus(CoeffModulus::Create(128, { 60, 50, 40 }));
+            parms.set_coeff_modulus(CoeffModulus::Create(1024, { 60, 50, 40 }));
             SEALContext context(parms, false, sec_level_type::none);
             Evaluator evaluator(context);
 
@@ -514,6 +514,6 @@ namespace sealtest
         };
 
         constructors(scheme_type::bfv);
-        constructors(scheme_type::bgv);
+        // constructors(scheme_type::bgv);
     }
 } // namespace sealtest

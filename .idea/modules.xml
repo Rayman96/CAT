@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/seal_gpu-main.iml" filepath="$PROJECT_DIR$/.idea/seal_gpu-main.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/seal_gpu-dev_for_publish.iml" filepath="$PROJECT_DIR$/.idea/seal_gpu-dev_for_publish.iml" />
     </modules>
   </component>
 </project>

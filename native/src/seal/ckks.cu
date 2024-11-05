@@ -1,6 +1,7 @@
 #include "seal/ckks.h"
 #include "seal/util/rlwe.h"
 // #include "seal/util/uintarithmod.cuh"
+#include "seal/util/helper.cuh"
 #include <complex>
 #include <cufft.h>
 #include <random>
@@ -277,6 +278,46 @@ namespace seal
             index += blockDim.x * gridDim.x;
         }
     }
+
+    __global__ void encode_internal_size_bt128_helper1(double *conj_values, uint64_t *d_coeffu, const unsigned long long n){
+        size_t index = blockIdx.x * blockDim.x + threadIdx.x;
+        while (index < n)
+        {
+            double value = conj_values[index];
+            bool is_negative = (value < 0);
+            value = abs(value);
+            __shared__ double two_pow_64;
+            two_pow_64 = pow(2.0, 64);
+            d_coeffu[index] = 0;
+            while(value >= 1){
+                d_coeffu[index] = static_cast<std::uint64_t>(fmod(value, two_pow_64));
+                value /= two_pow_64;
+            }
+
+            index += blockDim.x * gridDim.x;
+        }
+    }
+
+    __global__ void encode_internal_size_bt128_helper2(double *conj_values, uint64_t *d_coeffu, uint64_t *modulus, uint64_t *coeff_modulus_ratio0,
+        uint64_t *coeff_modulus_ratio1, const unsigned long long coeff_count, const unsigned long long coeff_modulus_size, const unsigned long long n){
+        size_t index = blockIdx.x * blockDim.x + threadIdx.x;
+        while (index < n)
+        {
+            double value = conj_values[index];
+            bool is_negative = (value < 0);
+            value = abs(value);
+            __shared__ double two_pow_64;
+            two_pow_64 = pow(2.0, 64);
+
+            while(value >= 1){
+                d_coeffu[index] = static_cast<std::uint64_t>(fmod(value, two_pow_64));
+                value /= two_pow_64;
+            }
+
+            index += blockDim.x * gridDim.x;
+        }
+    }
+
 
     void CKKSEncoder::encode_internal(
         double value, parms_id_type parms_id, double scale, Plaintext &destination, MemoryPoolHandle pool) const
@@ -564,7 +605,7 @@ namespace seal
         // Need to first set parms_id to zero, otherwise resize
         // will throw an exception.
         destination.parms_id() = parms_id_zero;
-        destination.d_data_malloc(coeff_count * coeff_modulus_size);
+        // destination.d_data_malloc(coeff_count * coeff_modulus_size);
         destination.resize(coeff_count*coeff_modulus_size);
 
         
@@ -581,7 +622,9 @@ namespace seal
         const int blocks_per_grid = (n * coeff_modulus_size + threads_per_block - 1) / threads_per_block;
 
         double *d_conj_values = nullptr;
-        checkCudaErrors(cudaMalloc((void **)&d_conj_values, n * sizeof(double)));
+        // checkCudaErrors(cudaMalloc((void **)&d_conj_values, n * sizeof(double)));
+        allocate_gpu<double>(&d_conj_values, n);
+
         checkCudaErrors(cudaMemcpy(d_conj_values, conj_value_real, n * sizeof(double), cudaMemcpyHostToDevice));
         size_t c_vec_size = mul_safe(coeff_count, coeff_modulus_size);
 
@@ -646,8 +689,9 @@ namespace seal
             checkCudaErrors(cudaMemcpy(
                 d_destination, destination.data(), coeff_count * coeff_modulus_size * sizeof(uint64_t),
                 cudaMemcpyHostToDevice));
-        }
 
+        }
+        deallocate_gpu<double>(&d_conj_values, n);
 
         if (max_coeff_bit_count <= 128){
 #if NTT_VERSION == 3
@@ -660,47 +704,6 @@ namespace seal
         destination.parms_id() = parms_id;
         destination.scale() = scale;
     }
-
-
-    __global__ void encode_internal_size_bt128_helper1(double *conj_values, uint64_t *d_coeffu, const unsigned long long n){
-        size_t index = blockIdx.x * blockDim.x + threadIdx.x;
-        while (index < n)
-        {
-            double value = conj_values[index];
-            bool is_negative = (value < 0);
-            value = abs(value);
-            __shared__ double two_pow_64;
-            two_pow_64 = pow(2.0, 64);
-            d_coeffu[index] = 0;
-            while(value >= 1){
-                d_coeffu[index] = static_cast<std::uint64_t>(fmod(value, two_pow_64));
-                value /= two_pow_64;
-            }
-
-            index += blockDim.x * gridDim.x;
-        }
-    }
-
-    __global__ void encode_internal_size_bt128_helper2(double *conj_values, uint64_t *d_coeffu, uint64_t *modulus, uint64_t *coeff_modulus_ratio0,
-        uint64_t *coeff_modulus_ratio1, const unsigned long long coeff_count, const unsigned long long coeff_modulus_size, const unsigned long long n){
-        size_t index = blockIdx.x * blockDim.x + threadIdx.x;
-        while (index < n)
-        {
-            double value = conj_values[index];
-            bool is_negative = (value < 0);
-            value = abs(value);
-            __shared__ double two_pow_64;
-            two_pow_64 = pow(2.0, 64);
-
-            while(value >= 1){
-                d_coeffu[index] = static_cast<std::uint64_t>(fmod(value, two_pow_64));
-                value /= two_pow_64;
-            }
-
-            index += blockDim.x * gridDim.x;
-        }
-    }
-
 
     template <typename T, typename>
     void CKKSEncoder::decode_internal(const Plaintext &plain, T *destination, MemoryPoolHandle pool) const
@@ -759,10 +762,13 @@ namespace seal
         double inv_scale = double(1.0) / plain.scale();
 
         uint64_t *d_plain_copy = nullptr;
-        checkCudaErrors(cudaMalloc((void **)&d_plain_copy, sizeof(uint64_t) * rns_poly_uint64_count));
+        // checkCudaErrors(cudaMalloc((void **)&d_plain_copy, sizeof(uint64_t) * rns_poly_uint64_count));
+        allocate_gpu<uint64_t>(&d_plain_copy, rns_poly_uint64_count);
+
         checkCudaErrors(cudaMemcpy(
             d_plain_copy, plain.d_data(), sizeof(uint64_t) * rns_poly_uint64_count, cudaMemcpyDeviceToDevice));
 
+        // printf("d_res allocate \n");
         double *d_res = nullptr;
         // checkCudaErrors(cudaMalloc((void **)&d_res, sizeof(double) * coeff_count));
         allocate_gpu<double>(&d_res, coeff_count);
@@ -789,6 +795,11 @@ namespace seal
             inv_scale);
 
         checkCudaErrors(cudaMemcpy(res.get(), d_res, sizeof(double) * coeff_count, cudaMemcpyDeviceToHost));
+        deallocate_gpu<double>(&d_res, coeff_count);
+        deallocate_gpu<uint64_t>(&d_plain_copy, rns_poly_uint64_count);
+
+
+        // 以下操作在CPU上执行
         auto res_complex(util::allocate<std::complex<double>>(coeff_count, pool));
         for (int i = 0; i < coeff_count; i++)
         {
@@ -801,6 +812,10 @@ namespace seal
         {
             destination[i] = from_complex<double>(res_complex[static_cast<std::size_t>(matrix_reps_index_map_[i])]);
         }
+
+        
+
+
     }
 
     template void CKKSEncoder::decode_internal<double, void>(

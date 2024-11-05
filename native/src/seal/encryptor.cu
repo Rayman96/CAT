@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #include "seal/encryptor.h"
@@ -125,13 +125,10 @@ namespace seal
         }
 
         // Resize destination and save results
-        destination.resize(context_, parms_id, 2);
         destination.resize_pure_gpu(context_, parms_id, 2);
 
         // If asymmetric key encryption
-        uint64_t *d_destination = nullptr;
-        // cudaMalloc((void **)&d_destination, coeff_count * encrypted_size * 4 * sizeof(uint64_t));
-        checkCudaErrors(cudaMalloc((void **)&d_destination, coeff_count * encrypted_size * (coeff_modulus_size + 1) * sizeof(uint64_t)));
+        uint64_t *d_destination = destination.d_data();
         if (is_asymmetric)
         {
             // printf("encrypte goes is_asymmetric\n");
@@ -161,50 +158,22 @@ namespace seal
                 uint64_t *d_root_powers = prev_context_data.d_root_powers();
 
                 // Zero encryption without modulus switching
-                Ciphertext temp(pool);
-                util::encrypt_zero_asymmetric_ckks_test(public_key_, context_, prev_parms_id, is_ntt_form, d_destination);
-                
-                temp.resize(context_, prev_parms_id, encrypted_size);
+                uint64_t *d_middle_destination = nullptr;
 
-                uint64_t *d_destination2 = nullptr;
-                checkCudaErrors(cudaMalloc((void **)&d_destination2, coeff_count * new_coeff_modulus_size * sizeof(uint64_t)));
-
-                const int threads_per_block = 256;
-                const int blocks_per_grid = (coeff_count * new_coeff_modulus_size + threads_per_block - 1) / threads_per_block;
-                SEAL_ITERATE(iter(temp, destination, size_t(0)), temp.size(), [&](auto I) {
-                    if (parms.scheme() == scheme_type::ckks)
-                    {
-
-#if NTT_VERSION == 3
-                        rns_tool->divide_and_round_q_last_ntt_inplace_cuda_test(
-                            d_destination + get<2>(I) * coeff_count * new_coeff_modulus_size,
-                            d_root_matrix_n1, d_root_matrix_n2, d_root_matrix_n12,
-                            prev_modulu_value, prev_ratio0, prev_ratio1, d_roots, d_bit_count,split_result,
-                            prev_d_inv_root_powers, 
-                            prev_context_data.small_ntt_tables());
-
-#else 
-                        rns_tool->divide_and_round_q_last_ntt_inplace_cuda_v1(
-                            d_destination + get<2>(I) * coeff_count * new_coeff_modulus_size,
-                            d_root_powers,
-                            prev_d_inv_root_powers,
-                            context_data.small_ntt_tables(),
-                            ntt_steam, stream_num);
-
-#endif
-
-
-                        set_poly_kernel<<<blocks_per_grid, threads_per_block>>>(d_destination + get<2>(I) * coeff_count * new_coeff_modulus_size, 
-                        d_destination2, coeff_count, new_coeff_modulus_size);
-
-                        checkCudaErrors(cudaMemcpy(get<1>(I), d_destination2, coeff_count * coeff_modulus_size * sizeof(uint64_t), cudaMemcpyDeviceToHost));
-                    }
+                printf("encrypted_size: %d, coeff_count: %d, new_coeff_modulus_size: %d, coeff_modulus_size:%d\n", encrypted_size, coeff_count, new_coeff_modulus_size, coeff_modulus_size);
+                allocate_gpu<uint64_t>(&d_middle_destination, coeff_count * encrypted_size * new_coeff_modulus_size);
+                util::encrypt_zero_asymmetric_ckks_test(public_key_, context_, prev_parms_id, is_ntt_form, d_middle_destination);
+                SEAL_ITERATE(iter(destination, size_t(0)), encrypted_size, [&](auto I) {
                     // bfv switch-to-next
-                    else if (parms.scheme() == scheme_type::bfv)
+                    if (parms.scheme() == scheme_type::bfv)
                     {
                         // rns_tool->divide_and_round_q_last_inplace(get<0>(I), pool);
                         // set_poly(get<0>(I), coeff_count, coeff_modulus_size, get<1>(I));
-                        rns_tool->divide_and_rount_q_last_inplace_cuda(destination.d_data() + get<2>(I) * coeff_count * coeff_modulus_size);
+                        rns_tool->divide_and_rount_q_last_inplace_cuda(d_middle_destination + get<1>(I) * coeff_count * new_coeff_modulus_size);
+                        checkCudaErrors(cudaMemcpy(destination.d_data() + get<1>(I) * coeff_count * coeff_modulus_size, 
+                                    d_middle_destination + get<1>(I) * coeff_count * new_coeff_modulus_size, 
+                                    coeff_count * coeff_modulus_size * sizeof(uint64_t), 
+                                    cudaMemcpyDeviceToDevice));
 
                     }
                     // bgv switch-to-next
@@ -212,29 +181,32 @@ namespace seal
                     {
 
                         printf("goes into bgv encrytption ntt test\n");
-
+                        const int threads_per_block = 256;
+                        const int blocks_per_grid = (coeff_count * new_coeff_modulus_size + threads_per_block - 1) / threads_per_block;
 
                         rns_tool->mod_t_and_divide_q_last_ntt_inplace_cuda(
-                            d_destination + get<2>(I) * coeff_count * new_coeff_modulus_size,
+                            d_destination + get<1>(I) * coeff_count * new_coeff_modulus_size,
                             d_root_matrix_n1, d_root_matrix_n2, d_root_matrix_n12,
                             prev_modulu_value, prev_ratio0, prev_ratio1, d_roots, d_bit_count,split_result,
                             prev_d_inv_root_powers,
                             prev_context_data.small_ntt_tables());       
 
-                        set_poly_kernel<<<blocks_per_grid, threads_per_block>>>(d_destination + get<2>(I) * coeff_count * new_coeff_modulus_size, 
-                        d_destination2, coeff_count, new_coeff_modulus_size);
+                        set_poly_kernel<<<blocks_per_grid, threads_per_block>>>(d_destination + get<1>(I) * coeff_count * new_coeff_modulus_size, 
+                        d_middle_destination, coeff_count, new_coeff_modulus_size);
 
-                        checkCudaErrors(cudaMemcpy(destination.d_data() + get<2>(I) * coeff_count * new_coeff_modulus_size, 
-                                                d_destination2, 
+                        checkCudaErrors(cudaMemcpy(destination.d_data() + get<1>(I) * coeff_count * new_coeff_modulus_size, 
+                                                d_middle_destination, 
                                                 coeff_count * coeff_modulus_size * sizeof(uint64_t), 
                                                 cudaMemcpyDeviceToDevice));
 
                     }
                 });
+                deallocate_gpu<uint64_t>(&d_middle_destination, coeff_count * encrypted_size * new_coeff_modulus_size);
+
             }
             else
             {
-                // printf("encrypte goes is_asymmetric no prev_context_data_ptr\n");
+                printf("encrypte goes is_asymmetric no prev_context_data_ptr\n");
                 // Does not require modulus switching
                 // util::encrypt_zero_asymmetric(public_key_, context_, parms_id, is_ntt_form, destination);
 
@@ -253,6 +225,8 @@ namespace seal
             // Does not require modulus switching
             util::encrypt_zero_symmetric(secret_key_, context_, parms_id, is_ntt_form, save_seed, destination);
         }
+
+
     }
     
     void Encryptor::encrypt_zero_internal_bgv(
@@ -376,10 +350,7 @@ namespace seal
         }
 
         // Resize destination and save results
-        destination.resize(context_, parms_id, 2);
-        // destination.d_data_malloc(coeff_count * coeff_modulus_size * encrypted_size);
         destination.resize_pure_gpu(context_, parms_id, 2);
-        // uint64_t *d_destination = destination.d_data();
 
         // If asymmetric key encryption
         uint64_t *d_plain = plain.d_data();
@@ -391,7 +362,7 @@ namespace seal
             auto prev_context_data_ptr = context_data.prev_context_data();
             if (prev_context_data_ptr)
             {
-
+                // printf("encrypte goes is_asymmetric\n");
                 // Requires modulus switching
                 auto &prev_context_data = *prev_context_data_ptr;
                 auto &prev_parms_id = prev_context_data.parms_id();
@@ -417,8 +388,6 @@ namespace seal
                 // Zero encryption without modulus switching
                 uint64_t *d_middle_destination = nullptr;
                 allocate_gpu<uint64_t>(&d_middle_destination, coeff_count * encrypted_size * new_coeff_modulus_size);
-                // checkCudaErrors(cudaMalloc((void **)&d_middle_destination, coeff_count * encrypted_size * new_coeff_modulus_size * sizeof(uint64_t)));              
-                
                 util::encrypt_zero_asymmetric_ckks_test(public_key_, context_, prev_parms_id, is_ntt_form, d_middle_destination);
 
                 SEAL_ITERATE(iter(destination, size_t(0)), encrypted_size, [&](auto I) {
@@ -461,7 +430,7 @@ namespace seal
             else
             {
                 uint64_t *d_middle_destination = nullptr;
-                checkCudaErrors(cudaMalloc((void **)&d_middle_destination, coeff_count * encrypted_size * coeff_modulus_size * sizeof(uint64_t))); 
+                allocate_gpu<uint64_t>(&d_middle_destination, coeff_count * encrypted_size * coeff_modulus_size);
         
                 // Does not require modulus switching
                 util::encrypt_zero_asymmetric_ckks_test(public_key_, context_, parms_id, is_ntt_form, d_middle_destination);
@@ -471,6 +440,8 @@ namespace seal
 
                 checkCudaErrors(cudaMemcpy(destination.d_data(), d_middle_destination, coeff_count * encrypted_size * coeff_modulus_size * sizeof(uint64_t), cudaMemcpyDeviceToDevice));
                 destination.scale() = plain.scale();
+                deallocate_gpu<uint64_t>(&d_middle_destination, coeff_count * encrypted_size * coeff_modulus_size);
+
             }
         }
         else
@@ -532,16 +503,18 @@ namespace seal
 
                 // Zero encryption without modulus switching
                 Ciphertext temp(pool);
-                checkCudaErrors(cudaMemcpy((void **)public_key_.data().data(), 
-                                            public_key_.data().d_data(), 
-                                            2 * context_.key_context_data()->parms().coeff_modulus().size() * context_.key_context_data()->parms().poly_modulus_degree() * sizeof(uint64_t), 
-                                            cudaMemcpyDeviceToHost));
-                printf("public_key: %llu\n", *(public_key_.data().data()));
+                // checkCudaErrors(cudaMemcpy((void **)public_key_.data().data(), 
+                //                             public_key_.data().d_data(), 
+                //                             2 * context_.key_context_data()->parms().coeff_modulus().size() * context_.key_context_data()->parms().poly_modulus_degree() * sizeof(uint64_t), 
+                //                             cudaMemcpyDeviceToHost));
 
+                PublicKey public_key_copy = public_key_;
+                public_key_copy.to_cpu();
 
-                util::encrypt_zero_asymmetric(public_key_, context_, prev_parms_id, is_ntt_form, temp);
+                util::encrypt_zero_asymmetric(public_key_copy, context_, prev_parms_id, is_ntt_form, temp);
+                // util::encrypt_zero_asymmetric_ckks_test(public_key_copy, context_, prev_parms_id, is_ntt_form, temp);
+                
 
-                printf("stage 1\n");
                 // Modulus switching
                 SEAL_ITERATE(iter(temp, destination), temp.size(), [&](auto I) {
                     if (parms.scheme() == scheme_type::ckks)
@@ -553,7 +526,6 @@ namespace seal
                     else if (parms.scheme() == scheme_type::bfv)
                     {
                         rns_tool->divide_and_round_q_last_inplace(get<0>(I), pool);
-                        printf("stage 2\n");
 
                     }
                     // bgv switch-to-next
@@ -582,9 +554,6 @@ namespace seal
             util::encrypt_zero_symmetric(secret_key_, context_, parms_id, is_ntt_form, save_seed, destination);
         }
     }
-
-
-
 
 namespace{
     __global__ void bgv_encrypt_helper2(uint64_t *input,
@@ -637,7 +606,6 @@ namespace{
         MemoryPoolHandle pool) const
     {
         // Minimal verification that the keys are set
-        // printf("encrypt goes here 4\n");
         if (is_asymmetric)
         {
             if (!is_metadata_valid_for(public_key_, context_))
@@ -671,31 +639,29 @@ namespace{
             auto &coeff_modulus = parms.coeff_modulus();
             size_t coeff_modulus_size = coeff_modulus.size();
             size_t coeff_count = parms.poly_modulus_degree();
-            // encrypt_zero_internal_origin(context_.first_parms_id(), is_asymmetric, save_seed, destination, pool);
+            // encrypt_zero_internal(context_.first_parms_id(), is_asymmetric, save_seed, destination, pool);
+            // print_helper<<<1,3>>>(destination.d_data(), 3);
+
+            // Ciphertext destination_copy;
+            encrypt_zero_internal_origin(context_.first_parms_id(), is_asymmetric, save_seed, destination, pool);
+            // destination.to_cpu();
+            // print_helper<<<1,3>>>(destination_copy.d_data(), 3);
 
             // for (int i = 0; i < 3; i++) {
             //     printf("destination %llu\n", *(destination.data() + i));
             // }
 
+            // destination.resize_pure_gpu(context_, context_.first_parms_id(), 2);
 
-            encrypt_zero_internal(context_.first_parms_id(), is_asymmetric, save_seed, destination, pool);
-            // print_helper<<<1,3>>>(destination.d_data(), 3);
+            // checkCudaErrors(cudaMemcpy(destination.d_data(), destination.data(), 2 * coeff_count * coeff_modulus_size * sizeof(uint64_t), cudaMemcpyHostToDevice));
+
             // cudaDeviceSynchronize();
             // Multiply plain by scalar coeff_div_plaintext and reposition if in upper-half.
             // Result gets added into the c_0 term of ciphertext (c_0,c_1).
             multiply_add_plain_with_scaling_variant(plain, *context_.first_context_data(), *iter(destination));
 
-            // printf("destination size:%d\n", destination.size());
-
-            // Plaintext plain_copy = plain;
-            // plain_copy.d_data_malloc(coeff_count);
-            // checkCudaErrors(cudaMemcpy(plain_copy.d_data(), plain.data(), coeff_count * sizeof(uint64_t), cudaMemcpyHostToDevice));
-
-            // multiply_add_plain_with_scaling_variant_cuda(plain_copy, *context_.first_context_data(), destination.d_data());
-
-            // destination.d_data_malloc(2*coeff_count*coeff_modulus_size);
-            destination.resize_pure_gpu(context_, context_.first_parms_id(), 2);
-            checkCudaErrors(cudaMemcpy(destination.d_data(), destination.data(), 2 * coeff_count * coeff_modulus_size * sizeof(uint64_t), cudaMemcpyHostToDevice));
+            destination.to_gpu();
+            // multiply_add_plain_with_scaling_variant_cuda(plain, *context_.first_context_data(), destination.d_data());
             // print_helper<<<1,3>>>(destination.d_data(), 3);
 
         }
@@ -738,7 +704,9 @@ namespace{
                 throw invalid_argument("plain cannot be in NTT form");
             }
             // 暂时先用这个
-            encrypt_zero_internal(context_.first_parms_id(), is_asymmetric, save_seed, destination, pool);
+            encrypt_zero_internal_origin(context_.first_parms_id(), is_asymmetric, save_seed, destination, pool);
+
+            // encrypt_zero_internal(context_.first_parms_id(), is_asymmetric, save_seed, destination, pool);
             // encrypt_zero_internal_bgv(context_.first_parms_id(), is_asymmetric, save_seed, destination, pool);
 
             auto &context_data = *context_.first_context_data();
@@ -803,9 +771,9 @@ namespace{
             // The plaintext gets added into the c_0 term of ciphertext (c_0,c_1).
             RNSIter destination_iter = *iter(destination);
             add_poly_coeffmod(destination_iter, plain_iter, coeff_modulus_size, coeff_modulus, destination_iter);
-            destination.d_data_malloc(2*coeff_count*coeff_modulus_size);
-            cudaMemcpy(destination.d_data(), destination.data(), 2*coeff_count * coeff_modulus_size * sizeof(uint64_t), cudaMemcpyHostToDevice);
-
+            // destination.d_data_malloc(2*coeff_count*coeff_modulus_size);
+            // cudaMemcpy(destination.d_data(), destination.data(), 2*coeff_count * coeff_modulus_size * sizeof(uint64_t), cudaMemcpyHostToDevice);
+            destination.to_gpu();
 
 
 

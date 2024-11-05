@@ -89,4 +89,9 @@ namespace seal
         }
     }
 
+    inline void print_value(uint64_t *value, int count)
+    {
+        print_helper<<<1, count>>>(value, count);
+    }
+
 } // namespace seal

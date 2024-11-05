@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #pragma once
@@ -19,7 +19,7 @@ namespace seal
     of sizes K and L results in a ciphertext of size K+L-1. Unfortunately, this
     growth in size slows down further multiplications and increases noise growth.
     Relinearization is an operation that has no semantic meaning, but it reduces
-    the size of ciphertexts back to 2. Microsoft SEAL can only relinearize size 3
+    the size of ciphertexts back to 2. IDEA SEAL_GPU can only relinearize size 3
     ciphertexts back to size 2, so if the ciphertexts grow larger than size 3,
     there is no way to reduce their size. Relinearization requires an instance of
     RelinKeys to be created by the secret key owner and to be shared with the

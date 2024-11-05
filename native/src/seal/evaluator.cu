@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #include "seal/evaluator.h"
@@ -263,6 +263,31 @@ namespace seal
                 idx += blockDim.x * gridDim.x;
             }
         }
+
+        __global__ void apply_galois_bfv_helper(uint32_t galois_elt, uint32_t coeff_count, int coeff_count_power, int coeff_modulus_size,
+            uint64_t *modulus,
+            uint64_t *operand, uint64_t *result){
+            size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+            while (idx < coeff_count * coeff_modulus_size) {
+                size_t modulu_index = idx / coeff_count;
+                size_t coeff_index = idx % coeff_count;
+
+                uint64_t index_raw = galois_elt * coeff_index;
+                uint64_t index = index_raw & (coeff_count - 1);
+
+
+                uint64_t result_value = operand[idx];
+                if ((index_raw >> coeff_count_power) & 1)
+                {
+                    int64_t non_zero = (result_value != 0);
+                    result_value = (modulus[modulu_index] - result_value) & static_cast<uint64_t>(-non_zero);
+                }
+                result[index + coeff_count * modulu_index] = result_value;
+
+                idx += blockDim.x * gridDim.x;
+
+            }
+        }
         
         __global__ void apply_galois_helper_single(
             uint32_t galois_elt, uint32_t coeff_count, int coeff_count_power_, int coeff_modulus_size,
@@ -416,6 +441,28 @@ namespace seal
                 uint64_t qi_lazy = qi << 2;
 #endif
 
+                temp_result[idx] += qi_lazy - operand1[idx];
+                // multiply_poly_scalar_coeffmod
+                unsigned long long tmp1, tmp2;
+                multiply_uint64_hw64_kernel(temp_result[idx], quotient, &tmp1);
+                tmp2 = operand * temp_result[idx] - tmp1 * modulus_value;
+                temp_result[idx] = tmp2 >= modulus_value ? tmp2 - modulus_value : tmp2;
+                // add_poly_coeffmod_kernel
+                uint64_t sum = temp_result[idx] + result[idx];
+                result[idx] = sum >= modulus_value ? sum - modulus_value : sum;
+                idx += blockDim.x * gridDim.x;
+            }
+        }
+
+        __global__ void switch_key_helper2_bfv(
+            uint64_t *operand1, uint64_t *temp_result, size_t coeff_count, uint64_t operand, uint64_t quotient,
+            uint64_t modulus_value, uint64_t *result)
+        {
+            uint64_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+            while (idx < coeff_count)
+            {
+                uint64_t qi = modulus_value;
+                uint64_t qi_lazy = qi << 1;
                 temp_result[idx] += qi_lazy - operand1[idx];
                 // multiply_poly_scalar_coeffmod
                 unsigned long long tmp1, tmp2;
@@ -685,9 +732,57 @@ namespace seal
             *result = tmp2 >= modulus_value ? tmp2 - modulus_value : tmp2;
         }
 
+        __global__ void bfv_multiply_helper(
+            uint64_t *d_encrypted1_q, uint64_t *d_encrypted2_q,
+            uint64_t *d_temp_dest_q,  
+            size_t dest_size, size_t encrypted1_size,
+            size_t encrypted2_size, size_t coeff_count, size_t base_q_size,
+            uint64_t *q_modulus_value, uint64_t *q_modulus_ratio0, uint64_t *q_modulus_ratio1)
+        {
+            size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+            while (idx < dest_size * coeff_count * base_q_size)
+            {
+                const size_t dest_size_idx = idx / (coeff_count * base_q_size);
+                const size_t dest_modulu_q_idx = (idx - dest_size_idx * coeff_count * base_q_size) / coeff_count;
+                const size_t coeff_idx = idx % coeff_count;
+
+                const size_t curr_encrypted1_last =
+                    dest_size_idx > encrypted1_size - 1 ? encrypted1_size - 1 : dest_size_idx;
+                const size_t curr_encrypted2_first =
+                    dest_size_idx > encrypted2_size - 1 ? encrypted2_size - 1 : dest_size_idx;
+
+                const size_t curr_encrypted1_first = dest_size_idx - curr_encrypted2_first;
+                const size_t steps = curr_encrypted1_last - curr_encrypted1_first + 1;
+
+                // 几个数据的起点坐标,dest是结果, 2需要反转一下
+                const size_t encrypted1_q_index = curr_encrypted1_first * coeff_count * base_q_size;
+
+                const size_t encrypted2_q_index = curr_encrypted2_first * coeff_count * base_q_size;
+
+                const size_t temp_dest_q_index = dest_size_idx * coeff_count * base_q_size;
+
+                for (int i = 0; i < steps; i++){
+                        behz_ciphertext_product_kernel_helper(
+                            d_encrypted1_q + encrypted1_q_index + i * base_q_size * coeff_count +
+                                dest_modulu_q_idx * coeff_count + coeff_idx,
+                            d_encrypted2_q + encrypted2_q_index - i * base_q_size * coeff_count +
+                                dest_modulu_q_idx * coeff_count + coeff_idx,
+                            d_temp_dest_q + temp_dest_q_index + dest_modulu_q_idx * coeff_count + coeff_idx,
+                            q_modulus_value[dest_modulu_q_idx], q_modulus_ratio0[dest_modulu_q_idx],
+                            q_modulus_ratio1[dest_modulu_q_idx],
+                            d_temp_dest_q + temp_dest_q_index + dest_modulu_q_idx * coeff_count + coeff_idx);
+                    
+
+                }
+                idx += blockDim.x * gridDim.x;
+            }
+        }
+        
         __global__ void bfv_multiply_helper1(
             uint64_t *d_encrypted1_q, uint64_t *d_encrypted2_q, uint64_t *d_encrypted1_Bsk, uint64_t *d_encrypted2_Bsk,
-            uint64_t *d_temp_dest_q, uint64_t *d_temp_dest_Bsk, size_t dest_size, size_t encrypted1_size,
+            uint64_t *d_temp_dest_q, 
+            uint64_t *d_temp_dest_Bsk, 
+            size_t dest_size, size_t encrypted1_size,
             size_t encrypted2_size, size_t coeff_count, size_t base_q_size, size_t base_Bsk_size,
             uint64_t *q_modulus_value, uint64_t *q_modulus_ratio0, uint64_t *q_modulus_ratio1,
             uint64_t *Bsk_modulus_value, uint64_t *Bsk_modulus_ratio0, uint64_t *Bsk_modulus_ratio1)
@@ -981,15 +1076,6 @@ namespace seal
         if (!context_.parameters_set())
         {
             throw invalid_argument("encryption parameters are not set correctly");
-        }
-    }
-
-    void Evaluator::ensure_size(uint64_t **input, size_t current_size, size_t &size) const
-    {
-        if (current_size > size)
-        {
-            checkCudaErrors(cudaMalloc((void **)input, current_size * sizeof(uint64_t)));
-            size = current_size;
         }
     }
 
@@ -1321,29 +1407,7 @@ namespace seal
         {
             throw logic_error("invalid parameters");
         }
-
-        // Set up iterators for bases
-        auto base_q = iter(parms.coeff_modulus());
-        auto &coeff_q_modulus = parms.coeff_modulus();
-        uint64_t *base_q_modulus_value = parms.d_coeff_modulus_value();
-        uint64_t *base_q_modulus_ratio0 = parms.d_coeff_modulus_ratio_0();
-        uint64_t *base_q_modulus_ratio1 = parms.d_coeff_modulus_ratio_1();
-
-        auto base_Bsk = iter(rns_tool->base_Bsk()->base());
-        auto base_Bsk_modulus = rns_tool->base_Bsk()->base();
-
-        uint64_t *d_base_Bsk_modulus_value = rns_tool->base_Bsk()->d_base();
-        uint64_t *d_base_Bsk_modulus_ratio0 = rns_tool->base_Bsk()->d_ratio0();
-        uint64_t *d_base_Bsk_modulus_ratio1 = rns_tool->base_Bsk()->d_ratio1();
-
-        // Set up iterators for NTT tables
-        auto base_q_ntt_tables = iter(context_data.small_ntt_tables());
-        auto base_Bsk_ntt_tables = iter(rns_tool->base_Bsk_ntt_tables());
-
-        uint64_t *d_inv_root_powers_Bsk = rns_tool->d_base_Bsk_root_powers();            
-
-      
-        // Microsoft SEAL uses BEHZ-style RNS multiplication. This process is somewhat complex and consists of the
+        // IDEA SEAL_GPU uses BEHZ-style RNS multiplication. This process is somewhat complex and consists of the
         // following steps:
         //
         // (1) Lift encrypted1 and encrypted2 (initially in base q) to an extended base q U Bsk U {m_tilde}
@@ -1355,10 +1419,8 @@ namespace seal
         // (7) Scale the result by q using a divide-and-floor algorithm, switching base to Bsk
         // (8) Use Shenoy-Kumaresan method to convert the result to base q
 
-        print_helper<<<1,3>>>(encrypted1.d_data(), 3);
-
-
         // Resize encrypted1 to destination size
+        // encrypted1.resize(context_, context_data.parms_id(), dest_size);
         encrypted1.resize_pure_gpu(context_, context_data.parms_id(), dest_size);
 
         // This lambda function takes as input an IterTuple with three components:
@@ -1374,30 +1436,27 @@ namespace seal
         // Allocate space for a base q output of behz_extend_base_convert_to_ntt for encrypted1
         // Allocate space for a base Bsk output of behz_extend_base_convert_to_ntt for encrypted1
 
-        ensure_size(&d_encrypted1_q, encrypted1_size * coeff_count * base_q_size, d_encrypted1_q_size);
-        ensure_size(&d_encrypted1_Bsk, encrypted1_size * coeff_count * base_Bsk_size, d_encrypted1_Bsk_size);
-        ensure_size(&d_encrypted2_q, encrypted2_size * coeff_count * base_q_size, d_encrypted2_q_size);
-        ensure_size(&d_encrypted2_Bsk, encrypted2_size * coeff_count * base_Bsk_size, d_encrypted2_Bsk_size);
-        ensure_size(&d_temp_bfv_multiply, encrypted1_size * coeff_count * base_Bsk_m_tilde_size, d_temp_bfv_multiply_size);
-        ensure_size(&d_temp_dest_q, dest_size * coeff_count * base_q_size, d_temp_dest_q_size);
-        ensure_size(&d_temp_dest_Bsk, dest_size * coeff_count * base_Bsk_size, d_temp_dest_Bsk_size);
-        ensure_size(&d_temp_q_Bsk, coeff_count * (base_q_size + base_Bsk_size) * dest_size, d_temp_q_Bsk_size);
-        ensure_size(&d_temp_Bsk, coeff_count * base_Bsk_size, d_temp_Bsk_size);
+        allocate_gpu<uint64_t>(&d_encrypted1_q, encrypted1_size * coeff_count * base_q_size);
+        allocate_gpu<uint64_t>(&d_encrypted1_Bsk, encrypted1_size * coeff_count * base_Bsk_size);
+        allocate_gpu<uint64_t>(&d_encrypted2_q, encrypted2_size * coeff_count * base_q_size);
+        allocate_gpu<uint64_t>(&d_encrypted2_Bsk, encrypted2_size * coeff_count * base_Bsk_size);
+        allocate_gpu<uint64_t>(&d_temp_bfv_multiply, encrypted1_size * coeff_count * base_Bsk_m_tilde_size);
+        allocate_gpu<uint64_t>(&d_temp_dest_q, dest_size * coeff_count * base_q_size);
+        allocate_gpu<uint64_t>(&d_temp_dest_Bsk, dest_size * coeff_count * base_Bsk_size);
+        allocate_gpu<uint64_t>(&d_temp_q_Bsk, coeff_count * (base_q_size + base_Bsk_size) * dest_size);
+        allocate_gpu<uint64_t>(&d_temp_Bsk, coeff_count * base_Bsk_size);
 
         checkCudaErrors(cudaMemset(d_temp_dest_q, 0, dest_size * coeff_count * base_q_size * sizeof(uint64_t)));
         checkCudaErrors(cudaMemset(d_temp_dest_Bsk, 0, dest_size * coeff_count * base_Bsk_size * sizeof(uint64_t)));
 
 
         // Perform BEHZ steps (1)-(3) for encrypted1
-        uint64_t *d_root_matrix = context_data.d_root_matrix();
-        int *d_bit_count = context_data.d_bit_count();
-
+        auto base_Bsk_modulus = rns_tool->base_Bsk()->base();
         cudaStream_t ntt = 0;
-        uint64_t temp_mu;
+        uint64_t *d_root_powers_Bsk = rns_tool->d_base_Bsk_root_powers();            
+        uint64_t *d_inv_root_powers_Bsk = rns_tool->d_base_Bsk_inv_root_powers();         
+        uint64_t *d_root_powers = context_data.d_inv_root_powers();
 
-
-
-        printf("bfv multiply ntt test\n ");
         for(size_t i = 0; i < encrypted1_size; i++){
             checkCudaErrors(cudaMemcpy(d_encrypted1_q + i * coeff_count * base_q_size, encrypted1.d_data() + i * coeff_count * base_q_size, 
                 coeff_count * base_q_size * sizeof(uint64_t), cudaMemcpyDeviceToDevice));
@@ -1409,10 +1468,7 @@ namespace seal
             ntt_v1(context_, encrypted1.parms_id(), d_encrypted1_q + i * coeff_count * base_q_size, base_q_size);
 # endif
             cudaDeviceSynchronize();
-        }
 
-
-        for (int i = 0; i < encrypted1_size; i++) {
             rns_tool->fastbconv_m_tilde_cuda(encrypted1.d_data() + i * coeff_count * base_q_size, 
                                             d_temp_bfv_multiply + i * coeff_count * base_Bsk_m_tilde_size);
             rns_tool->sm_mrq_cuda(d_temp_bfv_multiply + i * coeff_count * base_Bsk_m_tilde_size, 
@@ -1425,32 +1481,32 @@ namespace seal
             size_t j = i % base_Bsk_size;
 
             k_uint128_t mu1 = k_uint128_t::exp2(base_Bsk_modulus[j].bit_count() * 2);
-            temp_mu = (mu1 / base_Bsk_modulus[j].value()).low;
+            uint64_t temp_mu = (mu1 / base_Bsk_modulus[j].value()).low;
             forwardNTT(
                 d_encrypted1_Bsk + i * coeff_count, 
                 coeff_count, ntt, 
                 base_Bsk_modulus[j].value(), temp_mu,
                 base_Bsk_modulus[j].bit_count(), 
-                d_inv_root_powers_Bsk + coeff_count * j);
+                d_root_powers_Bsk + coeff_count * j);
             
         }
 
         for(size_t i = 0; i < encrypted2_size; i++){
             checkCudaErrors(cudaMemcpy(d_encrypted2_q + i * coeff_count * base_q_size, encrypted2.d_data() + i * coeff_count * base_q_size, 
                 coeff_count * base_q_size * sizeof(uint64_t), cudaMemcpyDeviceToDevice));
+            cudaDeviceSynchronize();
 
 # if NTT_VERSION == 3
             ntt_v3(context_, encrypted2.parms_id(), d_encrypted2_q + i * coeff_count * base_q_size, base_q_size);
 # else
             ntt_v1(context_, encrypted2.parms_id(), d_encrypted2_q + i * coeff_count * base_q_size, base_q_size);
 # endif
-        }
+            cudaDeviceSynchronize();
 
-        for (int i = 0; i < encrypted2_size; i++) {
-            rns_tool->fastbconv_m_tilde_cuda(encrypted2.d_data() + i * coeff_count * base_Bsk_m_tilde_size, 
+            rns_tool->fastbconv_m_tilde_cuda(encrypted2.d_data() + i * coeff_count * base_q_size, 
                                             d_temp_bfv_multiply + i * coeff_count * base_Bsk_m_tilde_size);
             rns_tool->sm_mrq_cuda(d_temp_bfv_multiply + i * coeff_count * base_Bsk_m_tilde_size, 
-                                            d_encrypted2_Bsk + i * coeff_count * base_Bsk_m_tilde_size);
+                                            d_encrypted2_Bsk + i * coeff_count * base_Bsk_size);
 
         }
 
@@ -1459,36 +1515,65 @@ namespace seal
             size_t j = i % base_Bsk_size;
 
             k_uint128_t mu1 = k_uint128_t::exp2(base_Bsk_modulus[j].bit_count() * 2);
-            temp_mu = (mu1 / base_Bsk_modulus[j].value()).low;
+            uint64_t temp_mu = (mu1 / base_Bsk_modulus[j].value()).low;
             forwardNTT(
-                d_encrypted2_Bsk + i *coeff_count, coeff_count, ntt, base_Bsk_modulus[j].value(), temp_mu,
-                base_Bsk_modulus[j].bit_count(), d_inv_root_powers_Bsk + coeff_count * j);
+                d_encrypted2_Bsk + i *coeff_count, 
+                coeff_count, 
+                ntt, 
+                base_Bsk_modulus[j].value(), temp_mu,
+                base_Bsk_modulus[j].bit_count(), 
+                d_root_powers_Bsk + coeff_count * j);
             
         }
 
         // Allocate temporary space for the output of step (4)
+        // We allocate space separately for the base q and the base Bsk components
 
-        bfv_multiply_helper1<<<(dest_size * base_Bsk_size * coeff_count + 255) / 256, 256>>>(
-            d_encrypted1_q, d_encrypted2_q, d_encrypted1_Bsk, d_encrypted2_Bsk, d_temp_dest_q, d_temp_dest_Bsk,
-            dest_size, encrypted1_size, encrypted2_size, coeff_count, base_q_size, base_Bsk_size, base_q_modulus_value,
-            base_q_modulus_ratio0, base_q_modulus_ratio1, d_base_Bsk_modulus_value, d_base_Bsk_modulus_ratio0,
-            d_base_Bsk_modulus_ratio1);
+        // Perform BEHZ step (4): dyadic multiplication on arbitrary size ciphertexts
+        uint64_t *d_base_Bsk_modulus_value = rns_tool->base_Bsk()->d_base();
+        uint64_t *d_base_Bsk_modulus_ratio0 = rns_tool->base_Bsk()->d_ratio0();
+        uint64_t *d_base_Bsk_modulus_ratio1 = rns_tool->base_Bsk()->d_ratio1();
 
+        auto &coeff_q_modulus = parms.coeff_modulus();
+        uint64_t *base_q_modulus_value = parms.d_coeff_modulus_value();
+        uint64_t *base_q_modulus_ratio0 = parms.d_coeff_modulus_ratio_0();
+        uint64_t *base_q_modulus_ratio1 = parms.d_coeff_modulus_ratio_1();
 
-        // Perform BEHZ step (5): transform data from NTT form
-        // Lazy reduction here. The following multiply_poly_scalar_coeffmod will correct the value back to [0, p)       
-        uint64_t *d_inv_root_powers = context_data.d_root_powers();
+        bfv_multiply_helper<<<(dest_size * base_Bsk_size * coeff_count + 255) / 256, 256>>>(
+                                                                                        d_encrypted1_Bsk, 
+                                                                                        d_encrypted2_Bsk, 
+                                                                                        d_temp_dest_Bsk,
+                                                                                        dest_size, 
+                                                                                        encrypted1_size, 
+                                                                                        encrypted2_size, 
+                                                                                        coeff_count, 
+                                                                                        base_Bsk_size,  
+                                                                                        d_base_Bsk_modulus_value, 
+                                                                                        d_base_Bsk_modulus_ratio0,
+                                                                                        d_base_Bsk_modulus_ratio1);
 
+        bfv_multiply_helper<<<(dest_size * base_q_size * coeff_count + 255) / 256, 256>>>(
+                                                                                        d_encrypted1_q, 
+                                                                                        d_encrypted2_q,  
+                                                                                        d_temp_dest_q, 
+                                                                                        dest_size, 
+                                                                                        encrypted1_size, 
+                                                                                        encrypted2_size, 
+                                                                                        coeff_count, 
+                                                                                        base_q_size, 
+                                                                                        base_q_modulus_value,
+                                                                                        base_q_modulus_ratio0, 
+                                                                                        base_q_modulus_ratio1);
 
         for (size_t i = 0; i < dest_size * base_q_size; i++)
         {
             size_t j = i % base_q_size;
 
             k_uint128_t mu1 = k_uint128_t::exp2(coeff_q_modulus[j].bit_count() * 2);
-            temp_mu = (mu1 / coeff_q_modulus[j].value()).low;
+            uint64_t temp_mu = (mu1 / coeff_q_modulus[j].value()).low;
             inverseNTT(
                 d_temp_dest_q + i *coeff_count, coeff_count, ntt, coeff_q_modulus[j].value(), temp_mu,
-                coeff_q_modulus[j].bit_count(), d_inv_root_powers + coeff_count * j);
+                coeff_q_modulus[j].bit_count(), d_root_powers + coeff_count * j);
             
         }
 
@@ -1497,13 +1582,13 @@ namespace seal
             size_t j = i % base_Bsk_size;
 
             k_uint128_t mu1 = k_uint128_t::exp2(base_Bsk_modulus[j].bit_count() * 2);
-            temp_mu = (mu1 / base_Bsk_modulus[j].value()).low;
+            uint64_t temp_mu = (mu1 / base_Bsk_modulus[j].value()).low;
             inverseNTT(
                 d_temp_dest_Bsk + i *coeff_count, coeff_count, ntt, base_Bsk_modulus[j].value(), temp_mu,
                 base_Bsk_modulus[j].bit_count(), d_inv_root_powers_Bsk + coeff_count * j);
-            
         }
 
+        // Perform BEHZ steps (6)-(8)
         bfv_multiply_helper2<<<(coeff_count * dest_size * base_Bsk_size +255) /256 , 256>>>(
                                                                             d_temp_dest_q, 
                                                                             d_temp_dest_Bsk,
@@ -1517,6 +1602,9 @@ namespace seal
                                                                             base_q_modulus_ratio1,
                                                                             d_base_Bsk_modulus_value,
                                                                             d_base_Bsk_modulus_ratio1);
+        
+
+
         // Perform BEHZ steps (6)-(8)
         for(int i = 0; i < dest_size; i++) {
             rns_tool->fast_floor_cuda(d_temp_q_Bsk + i * coeff_count*(base_q_size + base_Bsk_size), d_temp_Bsk);
@@ -1524,7 +1612,15 @@ namespace seal
             rns_tool->fastbconv_sk_cuda(d_temp_Bsk, encrypted1.d_data() + base_q_size * coeff_count * i);
         }
 
-        print_helper<<<1,3>>>(encrypted1.d_data(), 3);
+        deallocate_gpu<uint64_t>(&d_encrypted1_q, encrypted1_size * coeff_count * base_q_size);
+        deallocate_gpu<uint64_t>(&d_encrypted1_Bsk, encrypted1_size * coeff_count * base_Bsk_size);
+        deallocate_gpu<uint64_t>(&d_encrypted2_q, encrypted2_size * coeff_count * base_q_size);
+        deallocate_gpu<uint64_t>(&d_encrypted2_Bsk, encrypted2_size * coeff_count * base_Bsk_size);
+        deallocate_gpu<uint64_t>(&d_temp_bfv_multiply, encrypted1_size * coeff_count * base_Bsk_m_tilde_size);
+        deallocate_gpu<uint64_t>(&d_temp_dest_q, dest_size * coeff_count * base_q_size);
+        deallocate_gpu<uint64_t>(&d_temp_dest_Bsk, dest_size * coeff_count * base_Bsk_size);
+        deallocate_gpu<uint64_t>(&d_temp_q_Bsk, coeff_count * (base_q_size + base_Bsk_size) * dest_size);
+        deallocate_gpu<uint64_t>(&d_temp_Bsk, coeff_count * base_Bsk_size);
 
 
     }
@@ -1792,28 +1888,18 @@ namespace seal
             throw logic_error("invalid parameters");
         }
 
-        // Set up iterators for bases
-        auto base_q = iter(parms.coeff_modulus());
         
         auto &coeff_q_modulus = parms.coeff_modulus();
         uint64_t *base_q_modulus_value = parms.d_coeff_modulus_value();
         uint64_t *base_q_modulus_ratio0 = parms.d_coeff_modulus_ratio_0();
         uint64_t *base_q_modulus_ratio1 = parms.d_coeff_modulus_ratio_1();
 
-
-        auto base_Bsk = iter(rns_tool->base_Bsk()->base());
-
         auto base_Bsk_modulus = rns_tool->base_Bsk()->base();
         uint64_t *d_base_Bsk_modulus_value = rns_tool->base_Bsk()->d_base();
         uint64_t *d_base_Bsk_modulus_ratio0 = rns_tool->base_Bsk()->d_ratio0();
         uint64_t *d_base_Bsk_modulus_ratio1 = rns_tool->base_Bsk()->d_ratio1();
 
-
-        // Set up iterators for NTT tables
-        auto base_q_ntt_tables = iter(context_data.small_ntt_tables());
-        auto base_Bsk_ntt_tables = iter(rns_tool->base_Bsk_ntt_tables());
-
-        // Microsoft SEAL uses BEHZ-style RNS multiplication. For details, see Evaluator::bfv_multiply. This function
+        // IDEA SEAL_GPU uses BEHZ-style RNS multiplication. For details, see Evaluator::bfv_multiply. This function
         // uses additionally Karatsuba multiplication to reduce the complexity of squaring a size-2 ciphertext, but the
         // steps are otherwise the same as in Evaluator::bfv_multiply.
 
@@ -1829,17 +1915,20 @@ namespace seal
         // It performs steps (1)-(3) of the BEHZ multiplication on the given input polynomial (given as an RNSIter
         // or ConstRNSIter) and writes the results in base q and base Bsk to the given output iterators.
 
-        ensure_size(&d_encrypted1_q, encrypted_size * coeff_count * base_q_size, d_encrypted1_q_size);
-        ensure_size(&d_encrypted1_Bsk, encrypted_size * coeff_count * base_Bsk_size, d_encrypted1_Bsk_size);
-        ensure_size(&d_temp_bfv_multiply, encrypted_size * coeff_count * base_Bsk_m_tilde_size, d_temp_bfv_multiply_size);
-        ensure_size(&d_temp_dest_q, dest_size * coeff_count * base_q_size, d_temp_dest_q_size);
-        ensure_size(&d_temp_dest_Bsk, dest_size * coeff_count * base_Bsk_size, d_temp_dest_Bsk_size);
-        ensure_size(&d_temp_q_Bsk, coeff_count * (base_q_size + base_Bsk_size) * dest_size, d_temp_q_Bsk_size);
-        ensure_size(&d_temp_Bsk, coeff_count * base_Bsk_size, d_temp_Bsk_size);
+        allocate_gpu<uint64_t>(&d_encrypted1_q, encrypted_size * coeff_count * base_q_size);
+        allocate_gpu<uint64_t>(&d_encrypted1_Bsk, encrypted_size * coeff_count * base_Bsk_size);
+        allocate_gpu<uint64_t>(&d_temp_bfv_multiply, encrypted_size * coeff_count * base_Bsk_m_tilde_size);
+        allocate_gpu<uint64_t>(&d_temp_dest_q, dest_size * coeff_count * base_q_size);
+        allocate_gpu<uint64_t>(&d_temp_dest_Bsk, dest_size * coeff_count * base_Bsk_size);
+        allocate_gpu<uint64_t>(&d_temp_q_Bsk, coeff_count * (base_q_size + base_Bsk_size) * dest_size);
+        allocate_gpu<uint64_t>(&d_temp_Bsk, coeff_count * base_Bsk_size);
 
         uint64_t *d_root_matrix = context_data.d_root_matrix();
         int *d_bit_count = context_data.d_bit_count();
-        uint64_t *d_inv_root_powers_Bsk = rns_tool->d_base_Bsk_root_powers();            
+
+        uint64_t *d_root_powers_Bsk = rns_tool->d_base_Bsk_root_powers();            
+        uint64_t *d_inv_root_powers_Bsk = rns_tool->d_base_Bsk_inv_root_powers();         
+        uint64_t *d_inv_root_powers = context_data.d_inv_root_powers();
 
         cudaStream_t ntt = 0;
         uint64_t temp_mu;
@@ -1855,10 +1944,6 @@ namespace seal
             ntt_v1(context_, encrypted.parms_id(), d_encrypted1_q + i * coeff_count * base_q_size, base_q_size);
 # endif
             cudaDeviceSynchronize();
-
-        }
-
-        for (int i = 0; i < encrypted_size; i++) {
             rns_tool->fastbconv_m_tilde_cuda(encrypted.d_data() + i * coeff_count * base_q_size, 
                                             d_temp_bfv_multiply + i * coeff_count * base_Bsk_m_tilde_size);
             rns_tool->sm_mrq_cuda(d_temp_bfv_multiply + i * coeff_count * base_Bsk_m_tilde_size, 
@@ -1877,7 +1962,7 @@ namespace seal
                 coeff_count, ntt, 
                 base_Bsk_modulus[j].value(), temp_mu,
                 base_Bsk_modulus[j].bit_count(), 
-                d_inv_root_powers_Bsk + coeff_count * j);
+                d_root_powers_Bsk + coeff_count * j);
             
         }
 
@@ -1896,14 +1981,14 @@ namespace seal
                                             uint64_t *modulu_value, uint64_t *modulu_ratio0, uint64_t *modulu_ratio1, 
                                             size_t base_size, uint64_t *output) {
             // Compute c0^2
-            dyadic_product_coeffmod_kernel<<<(base_size * coeff_count + 255) / 255, 256>>>(input, input, coeff_count, base_size, 1, modulu_value, modulu_ratio0, modulu_ratio1, output);
+            dyadic_product_coeffmod_kernel<<<(base_size * coeff_count + 255) / 256, 256>>>(input, input, coeff_count, base_size, 1, modulu_value, modulu_ratio0, modulu_ratio1, output);
 
             // Compute 2*c0*c1
-            dyadic_product_coeffmod_kernel<<<(base_size * coeff_count + 255) / 255, 256>>>(input, input + base_size*coeff_count, coeff_count, base_size, 1, modulu_value, modulu_ratio0, modulu_ratio1, output + base_size*coeff_count);
-            add_poly_coeffmod_kernel<<<(base_size * coeff_count + 255) / 255, 256>>>(output + base_size*coeff_count, output + base_size*coeff_count, coeff_count, base_size, modulu_value, output + base_size*coeff_count);
+            dyadic_product_coeffmod_kernel<<<(base_size * coeff_count + 255) / 256, 256>>>(input, input + base_size*coeff_count, coeff_count, base_size, 1, modulu_value, modulu_ratio0, modulu_ratio1, output + base_size*coeff_count);
+            add_poly_coeffmod_kernel<<<(base_size * coeff_count + 255) / 256, 256>>>(output + base_size*coeff_count, output + base_size*coeff_count, coeff_count, base_size, modulu_value, output + base_size*coeff_count);
 
             // Compute c1^2
-            dyadic_product_coeffmod_kernel<<<(base_size * coeff_count + 255) / 255, 256>>>(input + base_size*coeff_count, input + base_size*coeff_count, coeff_count, base_size, 1, modulu_value, modulu_ratio0, modulu_ratio1, output + 2*base_size*coeff_count);;
+            dyadic_product_coeffmod_kernel<<<(base_size * coeff_count + 255) / 256, 256>>>(input + base_size*coeff_count, input + base_size*coeff_count, coeff_count, base_size, 1, modulu_value, modulu_ratio0, modulu_ratio1, output + 2*base_size*coeff_count);;
         };
 
         // Perform the BEHZ ciphertext square both for base q and base Bsk
@@ -1912,7 +1997,7 @@ namespace seal
 
         // Perform BEHZ step (5): transform data from NTT form
 
-        uint64_t *d_inv_root_powers = context_data.d_root_powers();
+        
         
         for (size_t i = 0; i < dest_size * base_q_size; i++)
         {
@@ -1959,6 +2044,14 @@ namespace seal
             rns_tool->fastbconv_sk_cuda(d_temp_Bsk, encrypted.d_data() + base_q_size * coeff_count * i);
         }
 
+
+        deallocate_gpu<uint64_t>(&d_encrypted1_q, encrypted_size * coeff_count * base_q_size);
+        deallocate_gpu<uint64_t>(&d_encrypted1_Bsk, encrypted_size * coeff_count * base_Bsk_size);
+        deallocate_gpu<uint64_t>(&d_temp_bfv_multiply, encrypted_size * coeff_count * base_Bsk_m_tilde_size);
+        deallocate_gpu<uint64_t>(&d_temp_dest_q, dest_size * coeff_count * base_q_size);
+        deallocate_gpu<uint64_t>(&d_temp_dest_Bsk, dest_size * coeff_count * base_Bsk_size);
+        deallocate_gpu<uint64_t>(&d_temp_q_Bsk, coeff_count * (base_q_size + base_Bsk_size) * dest_size);
+        deallocate_gpu<uint64_t>(&d_temp_Bsk, coeff_count * base_Bsk_size);
 
     }
 
@@ -2111,10 +2204,6 @@ namespace seal
         // Calculate number of relinearize_one_step calls needed
         size_t relins_needed = encrypted_size - destination_size;
 
-        // Iterator pointing to the last component of encrypted
-        auto encrypted_iter = iter(encrypted);
-        encrypted_iter += encrypted_size - 1;
-
         auto parms_id = encrypted.parms_id();
         auto &context_data = *context_.get_context_data(parms_id);
         auto &parms = context_data.parms();
@@ -2123,11 +2212,17 @@ namespace seal
         size_t coeff_count = parms.poly_modulus_degree();
 
         SEAL_ITERATE(iter(size_t(0)), relins_needed, [&](auto I) {
-            if ((context_data_ptr->parms().scheme() == scheme_type::ckks) || (context_data_ptr->parms().scheme() == scheme_type::bfv)){
+            if (context_data_ptr->parms().scheme() == scheme_type::ckks){
                 this->switch_key_inplace_cuda(
                     encrypted, encrypted.d_data() + (encrypted_size - 1) * coeff_count * coeff_modulus_size,
                     static_cast<const KSwitchKeys &>(relin_keys), RelinKeys::get_index(encrypted_size - 1 - I), pool);
-            } else {
+            } 
+            else if (context_data_ptr->parms().scheme() == scheme_type::bfv) {
+                this->switch_key_inplace_bfv(
+                    encrypted, encrypted.d_data() + (encrypted_size - 1) * coeff_count * coeff_modulus_size,
+                    static_cast<const KSwitchKeys &>(relin_keys), RelinKeys::get_index(encrypted_size - 1 - I), pool);
+            }
+            else {
                 this->switch_key_inplace_bgv(
                     encrypted, encrypted.d_data() + (encrypted_size - 1) * coeff_count * coeff_modulus_size,
                     static_cast<const KSwitchKeys &>(relin_keys), RelinKeys::get_index(encrypted_size - 1 - I), pool);
@@ -2137,7 +2232,7 @@ namespace seal
 
         // Put the output of final relinearization into destination.
         // Prepare destination only at this point because we are resizing down
-        encrypted.resize(context_, context_data_ptr->parms_id(), destination_size);
+        encrypted.resize_pure_gpu(context_, context_data_ptr->parms_id(), destination_size);
 
 
         // #ifdef SEAL_THROW_ON_TRANSPARENT_CIPHERTEXT
@@ -2209,8 +2304,6 @@ namespace seal
         checkCudaErrors(cudaMemcpy(
             d_copy, d_encrypted, encrypted_size * coeff_count * coeff_modulus_size * sizeof(uint64_t),
             cudaMemcpyDeviceToDevice));
-
-        Ciphertext encrypted_copy(pool);
 
         switch (next_parms.scheme())
         {
@@ -2487,7 +2580,6 @@ namespace seal
         }
     }
 
-    // check
     void Evaluator::mod_switch_to_inplace(Plaintext &plain, parms_id_type parms_id) const
     {
         // Verify parameters.
@@ -3046,25 +3138,20 @@ namespace seal
 
         if (encrypted.is_ntt_form() && plain.is_ntt_form())
         {
-            // cout << "multiply_plain_inplace ntt ntt" << endl;
             multiply_plain_ntt(encrypted, plain);
         }
         else if (!encrypted.is_ntt_form() && !plain.is_ntt_form())
         {
-            cout << "multiply_plain_inplace normal normal" << endl;
             multiply_plain_normal(encrypted, plain, move(pool));
         }
         else if (encrypted.is_ntt_form() && !plain.is_ntt_form())
-        {
-            cout << "multiply_plain_inplace ntt normal" << endl;
-            
+        {            
            Plaintext plain_copy = plain;
             transform_to_ntt_inplace(plain_copy, encrypted.parms_id(), move(pool));
             multiply_plain_ntt(encrypted, plain_copy);
         }
         else
         {
-            cout << "multiply_plain_inplace normal ntt" << endl;
            transform_to_ntt_inplace(encrypted);
             multiply_plain_ntt(encrypted, plain);
             transform_from_ntt_inplace(encrypted);
@@ -3082,7 +3169,6 @@ namespace seal
     void Evaluator::multiply_plain_normal(Ciphertext &encrypted, const Plaintext &plain, MemoryPoolHandle pool) const
     {
         // Extract encryption parameters.
-        printf("multiply_plain_normal\n");
         auto &context_data = *context_.get_context_data(encrypted.parms_id());
         auto &parms = context_data.parms();
         auto &coeff_modulus = parms.coeff_modulus();
@@ -3115,7 +3201,6 @@ namespace seal
 
         if (plain_nonzero_coeff_count == 1)
         {
-            printf("plain_nonzero_coeff_count == 1\n");
             // Multiplying by a monomial?
             size_t mono_exponent = plain.significant_coeff_count() - 1;
 
@@ -3123,7 +3208,6 @@ namespace seal
             {
                 if (!context_data.qualifiers().using_fast_plain_lift)
                 {
-                    printf("not using_fast_plain_lift\n");
                     // Allocate temporary space for a single RNS coefficient
                     SEAL_ALLOCATE_GET_COEFF_ITER(temp, coeff_modulus_size, pool);
 
@@ -3139,7 +3223,6 @@ namespace seal
                 }
                 else
                 {
-                    printf("using_fast_plain_lift\n");
                     // Every coeff_modulus prime is larger than plain_modulus, so there is no need to adjust the
                     // monomial. Instead, just do an RNS multiplication.
                     negacyclic_multiply_poly_mono_coeffmod_kernel<<<(encrypted_size * coeff_modulus_size * coeff_count + 255) / 256, 256>>> (
@@ -3149,7 +3232,6 @@ namespace seal
             }
             else
             {
-                printf("plain[mono_exponent] < plain_upper_half_threshold\n");
                 // The monomial represents a positive number, so no RNS multiplication is needed.
                 negacyclic_multiply_poly_mono_coeffmod_kernel<<<(encrypted_size * coeff_modulus_size * coeff_count + 255) / 256, 256>>> (
                     encrypted.d_data(), plain[mono_exponent], encrypted_size, coeff_count, coeff_modulus_size ,mono_exponent, d_modulu_value, d_modulu_ratio1);
@@ -3194,7 +3276,6 @@ namespace seal
 
             // context_data.rns_tool()->base_q()->decompose_array(temp_iter, coeff_count, pool);
 
-            printf("bfv using fast plain lift\n");
             multiply_plain_normal_helper<<<(plain_coeff_count + 255) / 256, 256>>>(
                 d_plain, d_temp, d_temp, plain_coeff_count, coeff_modulus_size, d_plain_upper_half_increment, plain_upper_half_threshold);
 
@@ -3209,7 +3290,7 @@ namespace seal
 
         // Need to multiply each component in encrypted with temp; first step is to transform to NTT form
         ntt_v1(context_, encrypted.parms_id(), d_temp, coeff_modulus_size, 0);
-        uint64_t *d_inv_root_powers = context_data.d_root_powers();
+        uint64_t *d_inv_root_powers = context_data.d_inv_root_powers();
         cudaStream_t ntt = 0;
 
         for(int i = 0; i < encrypted_size; i++){
@@ -3408,8 +3489,6 @@ namespace seal
 
             // Create a "reversed" helper iterator that iterates in the reverse order both plain RNS components and
             // the plain_upper_half_increment values.
-            // auto helper_iter = reverse_iter(plain_iter, plain_upper_half_increment);
-            // advance(helper_iter, -safe_cast<ptrdiff_t>(coeff_modulus_size - 1));
 
             transform_helper2<<<(coeff_modulus_size * coeff_count + 255) / 256, 256>>>(plain.d_data(), plain.d_data(), 
                                                                                             plain_coeff_count, 
@@ -3420,11 +3499,7 @@ namespace seal
 
         }
 
-
-        // cudaMemcpy(plain.d_data(), plain.data(), coeff_count * coeff_modulus_size * sizeof(uint64_t), cudaMemcpyHostToDevice);
         // Transform to NTT domain
-        // ntt_negacyclic_harvey(plain_iter, coeff_modulus_size, ntt_tables);
-
         // Size check
         if (!product_fits_in(coeff_count, coeff_modulus_size))
         {
@@ -3555,8 +3630,6 @@ namespace seal
         }
         
         // Transform each polynomial from NTT domain
-        // inverse_ntt_negacyclic_harvey(encrypted_ntt, encrypted_ntt_size, ntt_tables);
-
 
         // Finally change the is_ntt_transformed flag
         encrypted_ntt.is_ntt_form() = false;
@@ -3590,6 +3663,7 @@ namespace seal
         size_t coeff_count = parms.poly_modulus_degree();
         size_t coeff_modulus_size = coeff_modulus.size();
         size_t encrypted_size = encrypted.size();
+        uint64_t *d_coeff_modulus_value = parms.d_coeff_modulus_value();
         // Use key_context_data where permutation tables exist since previous runs.
         auto galois_tool = context_.key_context_data()->galois_tool();
 
@@ -3632,21 +3706,28 @@ namespace seal
             allocate_gpu<uint64_t>(&d_temp, coeff_count * coeff_modulus_size);
             int coeff_count_power = get_power_of_two(coeff_count);
 
-
-            apply_galois_helper_single<<<(coeff_modulus_size * coeff_count + 255) / 256, 256>>>(
-                galois_elt, coeff_count, coeff_count_power, coeff_modulus_size, encrypted.d_data(),
+            apply_galois_bfv_helper<<<(coeff_modulus_size * coeff_count + 255) / 256, 256>>>(
+                galois_elt, 
+                coeff_count, 
+                coeff_count_power, 
+                coeff_modulus_size, 
+                d_coeff_modulus_value,
+                encrypted.d_data(),
                 d_temp);
-
             checkCudaErrors(cudaMemcpy(encrypted.d_data(), d_temp, coeff_count * coeff_modulus_size * sizeof(uint64_t), cudaMemcpyDeviceToDevice));
 
-            apply_galois_helper_single<<<(coeff_modulus_size * coeff_count + 255) / 256, 256>>>(
-                galois_elt, coeff_count, coeff_count_power, coeff_modulus_size, 
-                encrypted.d_data() + coeff_count * coeff_modulus_size , 
+
+            apply_galois_bfv_helper<<<(coeff_modulus_size * coeff_count + 255) / 256, 256>>>(
+                galois_elt, coeff_count, 
+                coeff_count_power, 
+                coeff_modulus_size, 
+                d_coeff_modulus_value,
+                encrypted.d_data() + coeff_count * coeff_modulus_size,
                 d_temp);
             
             checkCudaErrors(cudaMemset(encrypted.d_data() + coeff_count * coeff_modulus_size, 0, coeff_count * coeff_modulus_size * sizeof(uint64_t)));
 
-            switch_key_inplace_cuda(
+            switch_key_inplace_bfv(
                 encrypted, d_temp, static_cast<const KSwitchKeys &>(galois_keys), GaloisKeys::get_index(galois_elt),
                 pool);
 
@@ -4146,14 +4227,13 @@ namespace seal
         allocate_gpu<uint64_t>(&d_t_target_, coeff_count * decomp_modulus_size);
         allocate_gpu<uint64_t>(&d_t_operand_, coeff_count * decomp_modulus_size);
         allocate_gpu<uint64_t>(&d_t_poly_lazy_, coeff_count * 2 * key_component_count * decomp_modulus_size);
-        allocate_gpu<uint64_t>(
-            &d_t_poly_prod_iter_, coeff_count * rns_modulus_size * key_component_count);
+        allocate_gpu<uint64_t>(&d_t_poly_prod_iter_, coeff_count * rns_modulus_size * key_component_count);
 
         uint64_t *d_target_iter = target_iter; // 输入数据
         uint64_t *d_t_target = d_t_target_; // copy了一份target_iter
         uint64_t *d_t_operand = d_t_operand_;
-        uint64_t *d_t_poly_lazy = d_t_poly_lazy_; // d_t_ntt复用这一块内存
-        uint64_t *d_t_poly_prod_iter = d_t_poly_prod_iter_; // ntt时复用这一块内存
+        uint64_t *d_t_poly_lazy = d_t_poly_lazy_; 
+        uint64_t *d_t_poly_prod_iter = d_t_poly_prod_iter_; 
 
         checkCudaErrors(cudaMemcpy(
             d_t_target, target_iter, coeff_count * decomp_modulus_size * sizeof(uint64_t), cudaMemcpyDeviceToDevice));
@@ -4165,26 +4245,266 @@ namespace seal
         const int stream_num = context_.num_streams();
         cudaStream_t *ntt_steam = context_.stream_context();
 
-        for (int i = 0; i < decomp_modulus_size; ++i)
+        if (scheme == scheme_type::ckks || scheme == scheme_type::bgv)
         {
-            mu1 = k_uint128_t::exp2(key_modulus[i].bit_count() * 2);
-            temp_mu = (mu1 / key_modulus[i].value()).low;
-            inverseNTT(
-                d_t_target + i * coeff_count, coeff_count, ntt_steam[i % stream_num], key_modulus[i].value(), temp_mu,
-                key_modulus[i].bit_count(), d_inv_root_powers + i * coeff_count);
+            for (int i = 0; i < decomp_modulus_size; ++i)
+            {
+                mu1 = k_uint128_t::exp2(key_modulus[i].bit_count() * 2);
+                temp_mu = (mu1 / key_modulus[i].value()).low;
+                inverseNTT(
+                    d_t_target + i * coeff_count, coeff_count, ntt_steam[i % stream_num], key_modulus[i].value(), temp_mu,
+                    key_modulus[i].bit_count(), d_inv_root_powers + i * coeff_count);
+            }
         }
-
+        
         uint64_t** d_key_ptr_array = new uint64_t*[decomp_modulus_size];
         for (int j = 0; j < decomp_modulus_size; ++j)
         {
             d_key_ptr_array[j] = key_vector[j].data().d_data() ;
         }
         uint64_t** d_ptr_array = nullptr;
-        // allocate_gpu<uint64_t *>(&d_ptr_array, decomp_modulus_size);
         checkCudaErrors(cudaMalloc((void**)&d_ptr_array, decomp_modulus_size * sizeof(uint64_t*)));
-
         checkCudaErrors(cudaMemcpy(d_ptr_array, d_key_ptr_array, decomp_modulus_size * sizeof(uint64_t*), cudaMemcpyHostToDevice));
 
+
+        for (int i = 0; i < rns_modulus_size; ++i)
+        {
+            size_t key_index = (i == decomp_modulus_size ? key_modulus_size - 1 : i);
+            uint64_t ratio_0 = key_modulus[key_index].const_ratio().data()[0];
+            uint64_t ratio_1 = key_modulus[key_index].const_ratio().data()[1];
+            uint64_t modulus = key_modulus[key_index].value();
+
+            // Product of two numbers is up to 60 + 60 = 120 bits, so we can sum up to 256 of them without reduction.
+            size_t lazy_reduction_summand_bound = size_t(SEAL_MULTIPLY_ACCUMULATE_USER_MOD_MAX);
+            size_t lazy_reduction_counter = lazy_reduction_summand_bound;
+
+            // Allocate memory for a lazy accumulator (128-bit coefficients)
+            checkCudaErrors(cudaMemset(d_t_poly_lazy, 0, coeff_count * 2 * key_component_count * sizeof(uint64_t)));
+            // Multiply with keys and perform lazy reduction on product's coefficients
+
+#if NTT_VERSION == 3
+            switch_key_helper3_batch<<<(coeff_count * decomp_modulus_size + 255) / 256, 256, 0, ntt_steam[0]>>>(
+                d_t_target, // d_t_target中数据要反复使用
+                coeff_count, decomp_modulus_size, modulus, ratio_1, d_t_operand, d_key_modulu_value, key_modulus[key_index].value());
+
+            ntt_v3_key_switch(context_, key_parms_id, d_t_operand, decomp_modulus_size,ntt_steam[0], key_index);
+
+#else
+            switch_key_helper3_batch<<<(coeff_count * decomp_modulus_size + 255) / 256, 256>>>(
+                d_t_target, // d_t_target中数据要反复使用
+                coeff_count, decomp_modulus_size, modulus, ratio_1, d_t_operand, d_key_modulu_value, key_modulus[key_index].value());
+
+
+            cudaDeviceSynchronize();
+            ntt_v1(context_, key_parms_id, d_t_operand, decomp_modulus_size, key_index, true);
+            cudaDeviceSynchronize();
+#endif
+
+            lazy_reduction_counter_kernel4<<<(key_coeff_count * key_component_count + 255) / 256, 256, 0, ntt_steam[0]>>>(
+                d_t_operand,
+                d_ptr_array,
+                d_t_poly_lazy,
+                key_coeff_count,
+                decomp_modulus_size,
+                modulus, 
+                ratio_0, 
+                ratio_1,
+                lazy_reduction_counter,
+                lazy_reduction_summand_bound,
+                key_component_count,
+                key_modulus_size, 
+                key_index);
+            
+            for (int j = 0; j < decomp_modulus_size; ++j)
+            {               
+                if (!--lazy_reduction_counter)
+                {
+                    lazy_reduction_counter = lazy_reduction_summand_bound;
+                }                
+            }
+            lazy_reduction_counter_kernel<<<(coeff_count * key_component_count + 255) / 256, 256, 0, ntt_steam[0]>>>(
+                d_t_poly_lazy, d_t_poly_prod_iter + (i * coeff_count), coeff_count, modulus, ratio_0, ratio_1,
+                key_component_count, rns_modulus_size, lazy_reduction_counter == lazy_reduction_summand_bound);
+        }
+        // Accumulated products are now stored in t_poly_prod
+
+        // Perform modulus switching with scaling
+        uint64_t *d_encrypted = encrypted.d_data();
+        for (int i = 0; i < key_component_count; ++i)
+        {
+            // Lazy reduction; this needs to be then reduced mod qi
+            uint64_t *d_t_last =
+                d_t_poly_prod_iter + coeff_count * rns_modulus_size * i + coeff_count * decomp_modulus_size;
+
+            uint64_t *d_inv_root_powers = key_context_data.d_inv_root_powers() + coeff_count * (key_modulus_size - 1);
+            mu1 = k_uint128_t::exp2(key_modulus[key_modulus_size - 1].bit_count() * 2);
+            temp_mu = (mu1 / key_modulus[key_modulus_size - 1].value()).low;
+            inverseNTT(
+                d_t_last, coeff_count, ntt_steam[0], key_modulus[key_modulus_size - 1].value(), temp_mu,
+                key_modulus[key_modulus_size - 1].bit_count(), d_inv_root_powers);
+
+            // Add (p-1)/2 to change from flooring to rounding.
+            uint64_t qk = key_modulus[key_modulus_size - 1].value();
+            uint64_t qk_half = qk >> 1;
+            barrett_reduce_64_helper<<<(coeff_count + 255) / 256, 256, 0, ntt_steam[0]>>>(
+                d_t_last, key_modulus[key_modulus_size - 1].value(),
+                key_modulus[key_modulus_size - 1].const_ratio().data()[1], qk_half, d_t_last, coeff_count);
+
+
+            switch_key_helper1_batch<<<(coeff_count * decomp_modulus_size + 255) / 256, 256, 0, ntt_steam[0]>>>(d_t_last, coeff_count, decomp_modulus_size,
+                                                                                         d_key_modulu_value, d_key_ratio_1, qk, d_t_poly_lazy);
+            
+#if NTT_VERSION == 3
+            ntt_v3(context_, key_parms_id, d_t_poly_lazy, decomp_modulus_size, 0, ntt_steam[0]);
+            for (int j = 0; j < decomp_modulus_size; ++j)
+            {
+                switch_key_helper2<<<(coeff_count + 255) / 256, 256, 0, ntt_steam[j % stream_num]>>>(
+                    d_t_poly_lazy + j * coeff_count, d_t_poly_prod_iter + coeff_count * (rns_modulus_size * i + j), coeff_count,
+                    modswitch_factors[j].operand, // scalar temp_scalar.operand, temp_scalar.quotient
+                    modswitch_factors[j].quotient, key_modulus[j].value(),
+                    d_encrypted + coeff_count * (decomp_modulus_size * i + j));
+                
+
+            }
+#else
+            cudaDeviceSynchronize();
+            for (int j = 0; j < decomp_modulus_size; ++j)
+            {
+                ntt_v1_single(context_, key_parms_id, d_t_poly_lazy+ j * coeff_count, j, ntt_steam[j % stream_num]);
+
+                switch_key_helper2<<<(coeff_count + 255) / 256, 256, 0, ntt_steam[j % stream_num]>>>(
+                    d_t_poly_lazy + j * coeff_count, d_t_poly_prod_iter + coeff_count * (rns_modulus_size * i + j), coeff_count,
+                    modswitch_factors[j].operand, // scalar temp_scalar.operand, temp_scalar.quotient
+                    modswitch_factors[j].quotient, key_modulus[j].value(),
+                    d_encrypted + coeff_count * (decomp_modulus_size * i + j));
+                
+
+            }
+
+#endif
+        }
+    
+        deallocate_gpu<uint64_t>(&d_t_target_, coeff_count * decomp_modulus_size);
+        deallocate_gpu<uint64_t>(&d_t_operand_, coeff_count * decomp_modulus_size);
+        deallocate_gpu<uint64_t>(&d_t_poly_lazy_, coeff_count * 2 * key_component_count * decomp_modulus_size);
+        deallocate_gpu<uint64_t>(&d_t_poly_prod_iter_, coeff_count * rns_modulus_size * key_component_count);
+    }
+
+    void Evaluator::switch_key_inplace_bfv(
+        Ciphertext &encrypted, uint64_t *target_iter, const KSwitchKeys &kswitch_keys, size_t kswitch_keys_index,
+        MemoryPoolHandle pool) const
+    {
+        auto parms_id = encrypted.parms_id();
+        auto &context_data = *context_.get_context_data(parms_id);
+        auto &parms = context_data.parms();
+        auto &key_context_data = *context_.key_context_data();
+        auto &key_parms = key_context_data.parms();
+        auto key_parms_id = key_parms.parms_id();
+        auto scheme = parms.scheme();
+
+        // Verify parameters.
+        if (!is_metadata_valid_for(encrypted, context_) || !is_buffer_valid(encrypted))
+        {
+            throw invalid_argument("encrypted is not valid for encryption parameters");
+        }
+        if (!context_.using_keyswitching())
+        {
+            throw logic_error("keyswitching is not supported by the context");
+        }
+
+        // Don't validate all of kswitch_keys but just check the parms_id.
+        if (kswitch_keys.parms_id() != context_.key_parms_id())
+        {
+            throw invalid_argument("parameter mismatch");
+        }
+
+        if (kswitch_keys_index >= kswitch_keys.data().size())
+        {
+            throw out_of_range("kswitch_keys_index");
+        }
+        if (!pool)
+        {
+            throw invalid_argument("pool is uninitialized");
+        }
+        if (scheme == scheme_type::bfv && encrypted.is_ntt_form())
+        {
+            throw invalid_argument("BFV encrypted cannot be in NTT form");
+        }
+        if (scheme == scheme_type::ckks && !encrypted.is_ntt_form())
+        {
+            throw invalid_argument("CKKS encrypted must be in NTT form");
+        }
+        if (scheme == scheme_type::bgv && !encrypted.is_ntt_form())
+        {
+            throw invalid_argument("BGV encrypted must be in NTT form");
+        }
+
+        // Extract encryption parameters.
+        size_t coeff_count = parms.poly_modulus_degree();
+        size_t decomp_modulus_size = parms.coeff_modulus().size();
+        auto &key_modulus = key_parms.coeff_modulus();
+
+        uint64_t *d_key_modulu_value = key_parms.d_coeff_modulus_value();
+        uint64_t *d_key_ratio_0 = key_parms.d_coeff_modulus_ratio_0();
+        uint64_t *d_key_ratio_1 = key_parms.d_coeff_modulus_ratio_1();
+
+        size_t key_modulus_size = key_modulus.size();
+        size_t key_coeff_count = key_parms.poly_modulus_degree();
+        size_t rns_modulus_size = decomp_modulus_size + 1;
+        auto key_ntt_table_plain = key_context_data.small_ntt_tables();
+        auto modswitch_factors = key_context_data.rns_tool()->inv_q_last_mod_q();
+        uint64_t *d_root_matrix = key_context_data.d_root_matrix();
+        uint64_t *d_root_power = key_context_data.d_root_powers();
+
+
+        // Size check
+        if (!product_fits_in(coeff_count, rns_modulus_size, size_t(2)))
+        {
+            throw logic_error("invalid parameters");
+        }
+
+        // Prepare input
+        auto &key_vector = kswitch_keys.data()[kswitch_keys_index];
+        size_t key_component_count = key_vector[0].data().size();
+
+        // Check only the used component in KSwitchKeys.
+        for (auto &each_key : key_vector)
+        {
+            if (!is_metadata_valid_for(each_key, context_) || !is_buffer_valid(each_key))
+            {
+                throw invalid_argument("kswitch_keys is not valid for encryption parameters");
+            }
+        }
+
+        uint64_t *d_t_target = nullptr; // copy了一份target_iter
+        uint64_t *d_t_operand = nullptr;
+        uint64_t *d_t_poly_lazy = nullptr; 
+        uint64_t *d_t_poly_prod_iter = nullptr; 
+
+        allocate_gpu<uint64_t>(&d_t_target, coeff_count * decomp_modulus_size);
+        allocate_gpu<uint64_t>(&d_t_operand, coeff_count * decomp_modulus_size);
+        allocate_gpu<uint64_t>(&d_t_poly_lazy, coeff_count * 2 * key_component_count * decomp_modulus_size);
+        allocate_gpu<uint64_t>(&d_t_poly_prod_iter, coeff_count * rns_modulus_size * key_component_count);
+
+        checkCudaErrors(cudaMemcpy(
+            d_t_target, target_iter, coeff_count * decomp_modulus_size * sizeof(uint64_t), cudaMemcpyDeviceToDevice));
+
+        uint64_t *d_inv_root_powers = key_context_data.d_inv_root_powers();
+       
+        uint64_t temp_mu;
+        k_uint128_t mu1;
+        const int stream_num = context_.num_streams();
+        cudaStream_t *ntt_steam = context_.stream_context();
+
+        uint64_t** d_key_ptr_array = new uint64_t*[decomp_modulus_size];
+        for (int j = 0; j < decomp_modulus_size; ++j)
+        {
+            d_key_ptr_array[j] = key_vector[j].data().d_data() ;
+        }
+
+        uint64_t** d_ptr_array = nullptr;
+        checkCudaErrors(cudaMalloc((void**)&d_ptr_array, decomp_modulus_size * sizeof(uint64_t*)));
+        checkCudaErrors(cudaMemcpy(d_ptr_array, d_key_ptr_array, decomp_modulus_size * sizeof(uint64_t*), cudaMemcpyHostToDevice));
 
         for (int i = 0; i < rns_modulus_size; ++i)
         {
@@ -4245,10 +4565,10 @@ namespace seal
             lazy_reduction_counter_kernel<<<(coeff_count * key_component_count + 255) / 256, 256, 0, ntt_steam[0]>>>(
                 d_t_poly_lazy, d_t_poly_prod_iter + (i * coeff_count), coeff_count, modulus, ratio_0, ratio_1,
                 key_component_count, rns_modulus_size, lazy_reduction_counter == lazy_reduction_summand_bound);
+            cudaDeviceSynchronize();
         }
         // Accumulated products are now stored in t_poly_prod
 
-        // Perform modulus switching with scaling
         uint64_t *d_encrypted = encrypted.d_data();
         for (int i = 0; i < key_component_count; ++i)
         {
@@ -4257,7 +4577,6 @@ namespace seal
                 d_t_poly_prod_iter + coeff_count * rns_modulus_size * i + coeff_count * decomp_modulus_size;
 
             uint64_t *d_inv_root_powers = key_context_data.d_inv_root_powers() + coeff_count * (key_modulus_size - 1);
-            // cudaStream_t ntt = 0;
             mu1 = k_uint128_t::exp2(key_modulus[key_modulus_size - 1].bit_count() * 2);
             temp_mu = (mu1 / key_modulus[key_modulus_size - 1].value()).low;
             inverseNTT(
@@ -4271,15 +4590,15 @@ namespace seal
                 d_t_last, key_modulus[key_modulus_size - 1].value(),
                 key_modulus[key_modulus_size - 1].const_ratio().data()[1], qk_half, d_t_last, coeff_count);
 
-
+        
             switch_key_helper1_batch<<<(coeff_count * decomp_modulus_size + 255) / 256, 256, 0, ntt_steam[0]>>>(d_t_last, coeff_count, decomp_modulus_size,
                                                                                          d_key_modulu_value, d_key_ratio_1, qk, d_t_poly_lazy);
             
 #if NTT_VERSION == 3
-            ntt_v3(context_, key_parms_id, d_t_poly_lazy, decomp_modulus_size, 0, ntt_steam[0]);
+            intt_v3(context_, key_parms_id, d_t_poly_prod_iter + i * rns_modulus_size * coeff_count, decomp_modulus_size, 0, ntt_steam[0]);
             for (int j = 0; j < decomp_modulus_size; ++j)
             {
-                switch_key_helper2<<<(coeff_count + 255) / 256, 256, 0, ntt_steam[j % stream_num]>>>(
+                switch_key_helper2_bfv<<<(coeff_count + 255) / 256, 256, 0, ntt_steam[j % stream_num]>>>(
                     d_t_poly_lazy + j * coeff_count, d_t_poly_prod_iter + coeff_count * (rns_modulus_size * i + j), coeff_count,
                     modswitch_factors[j].operand, // scalar temp_scalar.operand, temp_scalar.quotient
                     modswitch_factors[j].quotient, key_modulus[j].value(),
@@ -4289,30 +4608,27 @@ namespace seal
             }
 #else
             cudaDeviceSynchronize();
-            // ntt_v1(context_, key_parms_id, d_t_poly_lazy, decomp_modulus_size, 0);
             for (int j = 0; j < decomp_modulus_size; ++j)
             {
-                ntt_v1_single(context_, key_parms_id, d_t_poly_lazy+ j * coeff_count, j, ntt_steam[j % stream_num]);
+                intt_v1_single(context_, key_parms_id, d_t_poly_prod_iter + (j + i * rns_modulus_size) * coeff_count, j, ntt_steam[j % stream_num]);
 
-                switch_key_helper2<<<(coeff_count + 255) / 256, 256, 0, ntt_steam[j % stream_num]>>>(
+                switch_key_helper2_bfv<<<(coeff_count + 255) / 256, 256, 0, ntt_steam[j % stream_num]>>>(
                     d_t_poly_lazy + j * coeff_count, d_t_poly_prod_iter + coeff_count * (rns_modulus_size * i + j), coeff_count,
                     modswitch_factors[j].operand, // scalar temp_scalar.operand, temp_scalar.quotient
-                    modswitch_factors[j].quotient, key_modulus[j].value(),
+                    modswitch_factors[j].quotient, 
+                    key_modulus[j].value(),
                     d_encrypted + coeff_count * (decomp_modulus_size * i + j));
                 
 
             }
-
+            cudaDeviceSynchronize();
 #endif
         }
     
-        deallocate_gpu<uint64_t>(&d_t_target_, coeff_count * decomp_modulus_size);
-        deallocate_gpu<uint64_t>(&d_t_operand_, coeff_count * decomp_modulus_size);
-        deallocate_gpu<uint64_t>(&d_t_poly_lazy_, coeff_count * 2 * key_component_count * decomp_modulus_size);
-        deallocate_gpu<uint64_t>(
-            &d_t_poly_prod_iter_, coeff_count * rns_modulus_size * key_component_count);
-        deallocate_gpu<uint64_t *>(&d_ptr_array, decomp_modulus_size);
-
+        deallocate_gpu<uint64_t>(&d_t_target, coeff_count * decomp_modulus_size);
+        deallocate_gpu<uint64_t>(&d_t_operand, coeff_count * decomp_modulus_size);
+        deallocate_gpu<uint64_t>(&d_t_poly_lazy, coeff_count * 2 * key_component_count * decomp_modulus_size);
+        deallocate_gpu<uint64_t>(&d_t_poly_prod_iter, coeff_count * rns_modulus_size * key_component_count);
     }
 
     void Evaluator::switch_key_inplace_bgv(
@@ -4452,7 +4768,8 @@ namespace seal
             d_key_ptr_array[j] = key_vector[j].data().d_data() ;
         }
         uint64_t** d_ptr_array = nullptr;
-        allocate_gpu<uint64_t *>(&d_ptr_array, decomp_modulus_size);
+        // allocate_gpu<uint64_t *>(&d_ptr_array, decomp_modulus_size);
+        checkCudaErrors(cudaMalloc((void**)&d_ptr_array, decomp_modulus_size * sizeof(uint64_t*)));
         checkCudaErrors(cudaMemcpy(d_ptr_array, d_key_ptr_array, decomp_modulus_size * sizeof(uint64_t*), cudaMemcpyHostToDevice));
 
         for (int i = 0; i < rns_modulus_size; ++i)
@@ -4563,7 +4880,6 @@ namespace seal
         deallocate_gpu<uint64_t>(&d_t_poly_lazy_, coeff_count * 2 * key_component_count * decomp_modulus_size);
         deallocate_gpu<uint64_t>(
             &d_t_poly_prod_iter_, coeff_count * rns_modulus_size * key_component_count);
-        deallocate_gpu<uint64_t *>(&d_ptr_array, decomp_modulus_size);
 
 
     }

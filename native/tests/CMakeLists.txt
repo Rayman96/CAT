@@ -1,4 +1,4 @@
-# Copyright (c) Microsoft Corporation. All rights reserved.
+# Copyright (c) IDEA Corporation. All rights reserved.
 # Licensed under the MIT license.
 
 cmake_minimum_required(VERSION 3.13)
@@ -9,7 +9,7 @@ project(SEALTest VERSION 4.1.1 LANGUAGES CXX C)
 if(NOT DEFINED SEAL_BUILD_TESTS)
     set(SEAL_BUILD_TESTS ON)
 
-    # Import Microsoft SEAL
+    # Import IDEA SEAL_GPU
     find_package(SEAL 4.1.1 EXACT REQUIRED)
 
     # Must define these variables and include macros
@@ -59,18 +59,5 @@ if(SEAL_BUILD_TESTS)
         target_link_libraries(sealtest PRIVATE SEAL::seal_shared GTest::gtest)
     else()
         message(FATAL_ERROR "Cannot find target SEAL::seal or SEAL::seal_shared")
-    endif()
-
-    # In Debug mode, enable AddressSanitizer (and LeakSanitizer) on Unix-like platforms.
-    if(SEAL_DEBUG AND UNIX)
-        # On macOS, only AddressSanitizer is enabled.
-        # On Linux, LeakSanitizer is enabled by default.
-        target_compile_options(sealtest PUBLIC -fsanitize=address)
-        target_link_options(sealtest PUBLIC -fsanitize=address)
-        if(NOT APPLE)
-            message(STATUS "Sanitizers enabled: address, leak")
-        else()
-            message(STATUS "Sanitizers enabled: address")
-        endif()
     endif()
 endif()

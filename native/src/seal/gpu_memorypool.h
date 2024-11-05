@@ -28,35 +28,6 @@ namespace seal
             cudaDeviceSynchronize();
         }
 
-        void* allocate(size_t size) {
-            if (size <= 0) {
-                return nullptr;
-            }
-
-            void* ptr = nullptr;
-            if (!freeBlocks_[size].empty()) {
-                // std::cout << "Reusing block of size " << size << std::endl;
-                ptr = freeBlocks_[size].back().ptr;
-                freeBlocks_[size].pop_back();
-            } else {
-
-                ptr = addNewBlock(size);
-                // std::cout << "Allocating new block of size " << size << std::endl;
-                if (!ptr) {
-                    std::cout << "Memory allocation failed." << std::endl;
-                    return nullptr;
-                }
-            }
-
-            return ptr;
-        }
-
-        void deallocate(void* ptr, size_t size) {
-            if (ptr) {
-                freeBlocks_[size].push_back({ptr, size});
-            }
-        }
-
         void printPoolStatus() {
             const int barWidth = 50; // 设定字符图形的宽度
 
@@ -90,21 +61,125 @@ namespace seal
             std::cout << "\n";
         }
 
+        void printPoolStatusSimple() {
+            std::cout << "\nGPU Memory Pool Status:\n";
+            std::cout << "==============================\n";
+
+            std::cout << "Allocated: " << allocatedSize_ << " bytes" << std::endl;
+            std::cout << "Total: " << totalSize_ << " bytes" << std::endl;
+            std::cout << "\n";
+        }
+
+
+        void reset() {
+            
+            printPoolStatus();
+
+            // 1. 释放超出显存池的额外块
+            for (auto& entry : freeBlocks_) {
+                for (BlockInfo& block : entry.second) {
+                    uintptr_t blockAddress = reinterpret_cast<uintptr_t>(block.ptr);
+                    uintptr_t poolStartAddress = reinterpret_cast<uintptr_t>(pool_);
+                    uintptr_t poolEndAddress = poolStartAddress + totalSize_;
+
+                    if (blockAddress < poolStartAddress || blockAddress >= poolEndAddress) {
+                        // 这个块是在显存池之外分配的
+                        cudaError_t err = cudaFree(block.ptr);
+                        if (err != cudaSuccess) {
+                            std::cerr << "Warning: Failed to free memory block . CUDA error: " << cudaGetErrorString(err) << std::endl;
+                        }
+                    }
+                }
+            }
+
+            // 2. 释放所有已经分配的内存块。
+            if (pool_) {
+                checkCudaErrors(cudaFree(pool_));
+                pool_ = nullptr;
+            }
+
+
+            // 3. 清除freeBlocks_映射中的所有条目。
+            freeBlocks_.clear();
+
+            // 4. 重置allocatedSize_为0。
+            allocatedSize_ = 0;
+
+            // 5. 使用先前的totalSize_值重新初始化池。
+            initialize(totalSize_);
+
+            cudaDeviceSynchronize();
+        }
+
+        void check() {
+            if (allocatedSize_ > 0.9 * totalSize_){
+                reset();
+            }
+        }
+
+        bool isDevicePointer(void* ptr) {
+            cudaPointerAttributes attributes;
+            cudaError_t err = cudaPointerGetAttributes(&attributes, ptr);
+
+            if (err != cudaSuccess) {
+                cudaGetLastError();  // 清除错误
+                return false;  // 在这种情况下，它可能不是一个有效的CUDA指针
+            }
+
+            return attributes.type == cudaMemoryTypeDevice;
+        }
+
+        void* allocate(size_t size) {
+
+
+            if (size <= 0) {
+                return nullptr;
+            }
+
+            void* ptr = nullptr;
+            if (!freeBlocks_[size].empty()) {
+                // std::cout << "Reusing block of size " << size << std::endl;
+                
+                ptr = freeBlocks_[size].back().ptr;
+                // if (reinterpret_cast<uintptr_t>(ptr) < reinterpret_cast<uintptr_t>(pool_) || reinterpret_cast<uintptr_t>(ptr) >= (reinterpret_cast<uintptr_t>(pool_) + totalSize_)) {
+                //     std::cout << "Warning: Reusing memory block that is out of pool." << std::endl;
+                //     // check ptr size 
+                //     printf(isDevicePointer(ptr) ? "Device Pointer\n" : "Invalid Pointer\n");
+                // }
+                freeBlocks_[size].pop_back();
+            } else {
+
+                ptr = addNewBlock(size);
+                // std::cout << "Allocating new block of size " << size << std::endl;
+                if (!ptr) {
+                    std::cout << "Memory allocation failed." << std::endl;
+                    return nullptr;
+                }
+            }
+
+            return ptr;
+        }
+
+        void deallocate(void* ptr, size_t size) {
+            // std::cout << "return memory of size " << size << std::endl;
+            if (ptr) {
+                freeBlocks_[size].push_back({ptr, size});
+            }
+        }
+
 
     private:
         void* addNewBlock(size_t size) {
             if (allocatedSize_ + size > totalSize_) {
                 // There is not enough space in the current pool, allocate a new block
-
-                // printf("Allocated size: %lu, Total size: %lu\n", allocatedSize_, totalSize_);
-                // printf("Allocating another new block of size %lu\n", size);
+                // std::cout << "Allocating from out of pool " << size << std::endl;
                 void* blockPtr = nullptr;
                 checkCudaErrors(cudaMalloc(&blockPtr, size));
                 allocatedSize_ += size;
                 return blockPtr;
             }
 
-            // printf("allocate from pool\n");
+            // std::cout << "Allocating from pool " << size << std::endl;
             void* blockPtr = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(pool_) + allocatedSize_);
             allocatedSize_ += size;
             return blockPtr;

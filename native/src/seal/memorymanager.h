@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #pragma once
@@ -25,7 +25,7 @@ For .NET Framework wrapper support (C++/CLI) we need to
 namespace seal
 {
     /**
-    Manages a shared pointer to a memory pool. Microsoft SEAL uses memory pools
+    Manages a shared pointer to a memory pool. IDEA SEAL_GPU uses memory pools
     for improved performance due to the large number of memory allocations
     needed by the homomorphic encryption operations, and the underlying polynomial
     arithmetic. The library automatically creates a shared global memory pool
@@ -37,7 +37,7 @@ namespace seal
     allocations in certain functions. For example, in heavily multi-threaded
     applications allocating concurrently from a shared memory pool might lead
     to significant performance issues due to thread contention. For these cases
-    Microsoft SEAL provides overloads of the functions that take a MemoryPoolHandle
+    IDEA SEAL_GPU provides overloads of the functions that take a MemoryPoolHandle
     as an additional argument, and uses the associated memory pool for all dynamic
     allocations inside the function. Whenever these functions are called, the
     user can then simply pass a thread-local MemoryPoolHandle to be used.
@@ -172,7 +172,9 @@ namespace seal
         {
             if (!pool_)
             {
-                throw std::logic_error("pool not initialized");
+                // throw std::logic_error("pool not initialized");
+                MemoryPoolHandle pool = MemoryPoolHandle::New();
+                return *pool.pool_;
             }
             return *pool_.get();
         }
@@ -288,7 +290,7 @@ namespace seal
 
     /**
     A memory manager profile that always returns a MemoryPoolHandle pointing to
-    the global memory pool. Microsoft SEAL uses this memory manager profile by default.
+    the global memory pool. IDEA SEAL_GPU uses this memory manager profile by default.
     */
     class MMProfGlobal : public MMProf
     {

@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #include "examples.h"
@@ -12,15 +12,15 @@ void example_levels()
 
     /*
     In this examples we describe the concept of `levels' in BFV and CKKS and the
-    related objects that represent them in Microsoft SEAL.
+    related objects that represent them in IDEA SEAL_GPU.
 
-    In Microsoft SEAL a set of encryption parameters (excluding the random number
+    In IDEA SEAL_GPU a set of encryption parameters (excluding the random number
     generator) is identified uniquely by a 256-bit hash of the parameters. This
     hash is called the `parms_id' and can be easily accessed and printed at any
     time. The hash will change as soon as any of the parameters is changed.
 
     When a SEALContext is created from a given EncryptionParameters instance,
-    Microsoft SEAL automatically creates a so-called `modulus switching chain',
+    IDEA SEAL_GPU automatically creates a so-called `modulus switching chain',
     which is a chain of other encryption parameters derived from the original set.
     The parameters in the modulus switching chain are the same as the original
     parameters with the exception that size of the coefficient modulus is

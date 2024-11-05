@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #include "seal/util/common.cuh"
@@ -17,13 +17,6 @@
 using namespace std;
 using namespace seal::util;
 
-#define checkCudaErrors( a ) do { \
-    if (cudaSuccess != (a)) { \
-    fprintf(stderr, "Cuda runtime error in line %d of file %s \
-    : %s \n", __LINE__, __FILE__, cudaGetErrorString(cudaGetLastError()) ); \
-    exit(EXIT_FAILURE); \
-    } \
-    } while(0);
 namespace seal
 {
 
@@ -857,7 +850,9 @@ namespace seal
 
                 uint64_t *d_temp_array;
 
-                checkCudaErrors(cudaMalloc((void **)&d_temp_array, count * size_ * sizeof(uint64_t)));
+                // checkCudaErrors(cudaMalloc((void **)&d_temp_array, count * size_ * sizeof(uint64_t)));
+                allocate_gpu<uint64_t>(&d_temp_array, count * size_);
+
                 fill_temp_array_kernel<<<(count * size_ + 255) / 256, 256>>>(value, d_temp_array, count, size_);
                 // Clear the result
                 checkCudaErrors(cudaMemset(value, 0, count * size_ * sizeof(uint64_t)));
@@ -866,6 +861,8 @@ namespace seal
                     d_temp_array, d_inv_punctured_prod_mod_base_array_quotient_,
                     d_inv_punctured_prod_mod_base_array_operand_, d_base_, d_punctured_prod_, d_base_prod_, value,
                     count, size_);
+                deallocate_gpu<uint64_t>(&d_temp_array, count * size_);
+
             }
         }
 
@@ -1050,16 +1047,6 @@ namespace seal
             });
         }
         
-        void BaseConverter::ensure_size(uint64_t **input, size_t current_size, size_t &size) const
-        {
-            if (current_size > size)
-            {
-                // printf("before size %llu ,Reallocating %llu bytes\n", size,  current_size);
-                checkCudaErrors(cudaMalloc((void **)input, current_size * sizeof(uint64_t)));
-                size = current_size;
-            }
-        }
-
         void BaseConverter::fast_convert_array_cuda(uint64_t *d_in, uint64_t *d_out, size_t count) const
         {
             size_t ibase_size = ibase_.size();
@@ -1071,7 +1058,6 @@ namespace seal
             uint64_t *d_ibase_modulu_ratio_0 = ibase_.d_ratio0();
             uint64_t *d_ibase_modulu_ratio_1 = ibase_.d_ratio1();
             
-            // ensure_size(&d_temp_convert_, count * ibase_size, d_temp_convert_size_);
             allocate_gpu<uint64_t>(&d_temp_convert_, count * ibase_size);
             uint64_t *d_obase_modulu_value = obase_.d_base();
             uint64_t *d_obase_modulu_ratio_0 = obase_.d_ratio0();
@@ -1328,16 +1314,6 @@ namespace seal
             initialize(poly_modulus_degree, coeff_modulus, plain_modulus);
         }
 
-        void RNSTool::ensure_size(uint64_t **input, size_t current_size, size_t &size) const
-        {
-            if (current_size > size)
-            {
-                // printf("before size %llu ,Reallocating %llu bytes\n", size,  current_size);
-                checkCudaErrors(cudaMalloc((void **)input, current_size * sizeof(uint64_t)));
-                size = current_size;
-            } 
-        }
-
         void RNSTool::initialize(size_t poly_modulus_degree, const RNSBase &q, const Modulus &t)
         {
             // Return if q is out of bounds
@@ -1413,8 +1389,9 @@ namespace seal
             // Generate the Bsk NTTTables; these are used for NTT after base extension to Bsk
             try
             {
+                vector<Modulus> base_bsk_modulus = vector<Modulus>(base_Bsk_->base(), base_Bsk_->base() + base_Bsk_size);
                 CreateNTTTables(
-                    coeff_count_power, vector<Modulus>(base_Bsk_->base(), base_Bsk_->base() + base_Bsk_size),
+                    coeff_count_power, base_bsk_modulus,
                     base_Bsk_ntt_tables_, pool_);
 
                 size_t c_vec_size = mul_safe(coeff_count_, base_Bsk_size);
@@ -1427,19 +1404,23 @@ namespace seal
                         h_root_powers[i * coeff_count_ + j] = wrap_root_powers[j].operand;
                     }
                 }
-                cudaPointerAttributes attributes;
-                cudaError_t error = cudaPointerGetAttributes(&attributes, d_base_Bsk_root_powers_);
-                if (error == cudaSuccess)
-                {
-                    if (attributes.devicePointer == NULL)
-                    {
+
                         // printf("Pointer is not allocated on the device\n");
-                        checkCudaErrors(cudaMalloc((void **)&d_base_Bsk_root_powers_, c_vec_size * sizeof(std::uint64_t)));
-                    }
-                }
+                checkCudaErrors(cudaMalloc((void **)&d_base_Bsk_root_powers_, c_vec_size * sizeof(std::uint64_t)));
+                checkCudaErrors(cudaMalloc((void **)&d_base_Bsk_inv_root_powers_, c_vec_size * sizeof(std::uint64_t)));
 
                 checkCudaErrors(cudaMemcpy(
                     d_base_Bsk_root_powers_, h_root_powers, c_vec_size * sizeof(uint64_t), cudaMemcpyHostToDevice));
+
+                for (int i = 0; i < base_Bsk_size; i++)
+                {
+                    fillTablePsi128<<<(poly_modulus_degree + 1023) / 1024, 1024>>>(
+                        base_Bsk_ntt_tables_.get()[i].get_inv_root(), 
+                        base_bsk_modulus[i].value(),
+                        d_base_Bsk_inv_root_powers_ + i * poly_modulus_degree,
+                        base_Bsk_ntt_tables_.get()[i].coeff_count_power());
+                }
+
 
             }
             catch (const logic_error &)
@@ -1751,6 +1732,7 @@ namespace seal
                     input + i * coeff_count_, coeff_count_, 1, inv_q_last_mod_q_[i].quotient,
                     inv_q_last_mod_q_[i].operand, base_q_->base()[i].value(), input + i * coeff_count_);
             }
+            deallocate_gpu<uint64_t>(&temp, coeff_count_);
 
         }
 
@@ -1850,10 +1832,12 @@ namespace seal
             size_t base_q_size = base_q_->size();
             uint64_t *last_input = d_input + (base_q_size - 1) * coeff_count_;
             uint64_t *d_temp = nullptr;
-            checkCudaErrors(cudaMalloc((void **)&d_temp, coeff_count_ * sizeof(uint64_t)));
+            // checkCudaErrors(cudaMalloc((void **)&d_temp, coeff_count_ * sizeof(uint64_t)));
+            allocate_gpu<uint64_t>(&d_temp, coeff_count_);
 
             uint64_t *ntt_temp = nullptr;
-            checkCudaErrors(cudaMalloc((void **)&ntt_temp, coeff_count_ * sizeof(uint64_t)));
+            // checkCudaErrors(cudaMalloc((void **)&ntt_temp, coeff_count_ * sizeof(uint64_t)));
+            allocate_gpu<uint64_t>(&ntt_temp, coeff_count_);
 
             // Convert to non-NTT form
             inverse_ntt_cuda_2(
@@ -1929,6 +1913,9 @@ namespace seal
                     d_input + i * coeff_count_, coeff_count_, 1, inv_q_last_mod_q_[i].quotient,
                     inv_q_last_mod_q_[i].operand, base_q_->base()[i].value(), d_input + i * coeff_count_);
             }
+            deallocate_gpu<uint64_t>(&d_temp, coeff_count_);
+            deallocate_gpu<uint64_t>(&ntt_temp, coeff_count_);
+
         }
 
         void RNSTool::divide_and_round_q_last_ntt_inplace_cuda_v1(
@@ -1937,18 +1924,13 @@ namespace seal
             size_t base_q_size = base_q_->size();
             uint64_t *last_input = d_input + (base_q_size - 1) * coeff_count_;
 
-            // ensure_size(&d_temp_, coeff_count_ * (base_q_size - 1), d_temp_size_);
-            // uint64_t *d_temp = d_temp_;
-
             uint64_t *d_temp = nullptr;
             allocate_gpu<uint64_t>(&d_temp, coeff_count_ * (base_q_size - 1));
-
 
             // Convert to non-NTT form
             inverse_ntt_cuda_2(
                 last_input, coeff_count_, 1, d_inv_root_powers + (base_q_size - 1) * coeff_count_,
                 rns_ntt_tables[base_q_size - 1].modulus());
-            // rns_ntt_tables[base_q_size - 1].get_inv_root(), rns_ntt_tables[base_q_size - 1].coeff_count_power());
 
             // Add (qi-1)/2 to change from flooring to rounding
             Modulus last_modulus = (*base_q_)[base_q_size - 1];
@@ -2087,8 +2069,8 @@ namespace seal
             size_t base_q_size = base_q_->size();
             size_t base_B_size = base_B_->size();
 
-            // ensure_size(&d_temp_, coeff_count_, d_temp_size_);
-            allocate_gpu<uint64_t>(&d_temp_, coeff_count_);
+            uint64_t *d_temp = nullptr;
+            allocate_gpu<uint64_t>(&d_temp, coeff_count_);
 
             uint64_t *d_base_q_value = base_q_->d_base();
             uint64_t *d_base_q_ratio = base_q_->d_ratio1();
@@ -2096,7 +2078,6 @@ namespace seal
 
             uint64_t *d_alpha_sk = nullptr;
             allocate_gpu<uint64_t>(&d_alpha_sk, coeff_count_);
-            // checkCudaErrors(cudaMalloc((void **)&d_alpha_sk, coeff_count_ * sizeof(uint64_t)));
 
 // 计算过程
             // Fast convert B -> q; input is in Bsk but we only use B
@@ -2104,14 +2085,14 @@ namespace seal
 
             // Compute alpha_sk
             // Fast convert B -> {m_sk}; input is in Bsk but we only use B
-            base_B_to_m_sk_conv_->fast_convert_array_cuda(d_in, d_temp_, coeff_count_);
+            base_B_to_m_sk_conv_->fast_convert_array_cuda(d_in, d_temp, coeff_count_);
 
             // Take the m_sk part of input, subtract from temp, and multiply by inv_prod_B_mod_m_sk_
             // Note: input_sk is allocated in input[base_B_size]
 
 // 两个可以合一起
             fastbconv_sk_kernel_helper1<<<(coeff_count_ + 255) / 256, 256>>>(d_in + base_B_size * coeff_count_, 
-                                                                            d_temp_, coeff_count_, 
+                                                                            d_temp, coeff_count_, 
                                                                             d_alpha_sk, m_sk_.value(), 
                                                                             inv_prod_B_mod_m_sk_.operand, 
                                                                             inv_prod_B_mod_m_sk_.quotient);
@@ -2122,7 +2103,7 @@ namespace seal
                                                                                              d_prod_B_mod_q_, 
                                                                                             d_base_q_value, d_base_q_ratio);
             deallocate_gpu<uint64_t>(&d_alpha_sk, coeff_count_);
-            deallocate_gpu<uint64_t>(&d_temp_, coeff_count_);
+            deallocate_gpu<uint64_t>(&d_temp, coeff_count_);
 
         }
 
@@ -2352,21 +2333,23 @@ namespace seal
             // m_tilde can be easily merge into the base conversion operation; however, then
             // we could not use the BaseConverter as below without modifications.
 
-            ensure_size(&d_temp_, base_q_size * coeff_count_, d_temp_size_);
+            uint64_t *d_temp = nullptr;
+            allocate_gpu<uint64_t>(&d_temp, base_q_size * coeff_count_);
 
 
             uint64_t *d_base_q_value = base_q_->d_base();
             uint64_t *d_base_q_ratio = base_q_->d_ratio1();
             
             multiply_poly_scalar_coeffmod_kernel_kernel<<<(base_q_size * coeff_count_ + 255) / 256, 256>>> (
-                input, d_temp_, coeff_count_, base_q_size, 
+                input, d_temp, coeff_count_, base_q_size, 
                 d_base_q_value, d_base_q_ratio, m_tilde_.value());
 
             // Now convert to Bsk
-            base_q_to_Bsk_conv_->fast_convert_array_cuda(d_temp_, destination, coeff_count_);
+            base_q_to_Bsk_conv_->fast_convert_array_cuda(d_temp, destination, coeff_count_);
 
             // Finally convert to {m_tilde}
-            base_q_to_m_tilde_conv_->fast_convert_array_cuda(d_temp_, destination + base_Bsk_size * coeff_count_, coeff_count_);
+            base_q_to_m_tilde_conv_->fast_convert_array_cuda(d_temp, destination + base_Bsk_size * coeff_count_, coeff_count_);
+            deallocate_gpu<uint64_t>(&d_temp, base_q_size * coeff_count_);
         }
 
         void RNSTool::decrypt_scale_and_round(ConstRNSIter input, CoeffIter destination, MemoryPoolHandle pool) const
@@ -2444,7 +2427,8 @@ namespace seal
             size_t base_t_gamma_size = base_t_gamma_->size();
 
             uint64_t *d_temp = nullptr;
-            checkCudaErrors(cudaMalloc((void **)&d_temp, coeff_count_ * base_q_size * sizeof(uint64_t)));
+            // checkCudaErrors(cudaMalloc((void **)&d_temp, coeff_count_ * base_q_size * sizeof(uint64_t)));
+            allocate_gpu<uint64_t>(&d_temp, coeff_count_ * base_q_size);
             for(int i = 0; i < base_q_size; i++){
                 multiply_poly_scalar_coeffmod_kernel_one_modulu<<<(coeff_count_ + 255) / 256, 256>>>(
                     input + i * coeff_count_, d_temp + i * coeff_count_, coeff_count_, prod_t_gamma_mod_q_[i].operand, prod_t_gamma_mod_q_[i].quotient, 
@@ -2452,8 +2436,14 @@ namespace seal
             }
 
             uint64_t *d_temp_t_gamma = nullptr;
-            checkCudaErrors(cudaMalloc((void **)&d_temp_t_gamma, coeff_count_ * base_t_gamma_size * sizeof(uint64_t)));
+            // checkCudaErrors(cudaMalloc((void **)&d_temp_t_gamma, coeff_count_ * base_t_gamma_size * sizeof(uint64_t)));
+            allocate_gpu<uint64_t>(&d_temp_t_gamma, coeff_count_ * base_t_gamma_size);
             base_q_to_t_gamma_conv_->fast_convert_array_cuda(d_temp, d_temp_t_gamma, coeff_count_);
+
+
+            deallocate_gpu<uint64_t>(&d_temp, coeff_count_ * base_q_size);
+            deallocate_gpu<uint64_t>(&d_temp_t_gamma, coeff_count_ * base_t_gamma_size);
+
 
         }
 
@@ -2574,8 +2564,8 @@ namespace seal
             const Modulus *curr_modulus = base_q_->base();
             const Modulus plain_modulus = t_;
             uint64_t last_modulus_value = curr_modulus[modulus_size - 1].value();
-
-            ensure_size(&d_temp_, coeff_count_ * (modulus_size - 1), d_temp_size_);
+            uint64_t *d_temp = nullptr;
+            allocate_gpu<uint64_t>(&d_temp, coeff_count_ * (modulus_size - 1));
 
             uint64_t *c_last = input + (modulus_size - 1) * coeff_count_;
 
@@ -2590,10 +2580,8 @@ namespace seal
             uint64_t plain_value = plain_modulus.value();
             uint64_t plain_ratio1 = plain_modulus.const_ratio().data()[1];
 
-
-            ensure_size(&d_input_m_tilde_, (modulus_size - 1) * coeff_count_, d_input_m_tilde_size_);
-            uint64_t *d_delta_mod_q_i = d_input_m_tilde_;
-
+            uint64_t *d_delta_mod_q_i = nullptr;
+            allocate_gpu<uint64_t>(&d_delta_mod_q_i, (modulus_size - 1) * coeff_count_);
 
             mod_t_and_divide_q_helper<<<(coeff_count_ * (modulus_size - 1) + 255) / 256, 256>>>(c_last, d_delta_mod_q_i,
                                                                                                 coeff_count_, (modulus_size - 1),
@@ -2607,20 +2595,9 @@ namespace seal
             dim3 block(16, 16);
             int n1 = split_coeff.first, n2 = split_coeff.second;
             dim3 grid_batch((n2 - 1) / block.x + 1, (n1* (modulus_size - 1) - 1) / block.y + 1);
-            
-            // matrix_multi_elemul_merge_batch<<<grid_batch, block>>>(matrix_n1, 
-            //                                                     d_delta_mod_q_i, 
-            //                                                     d_temp_,
-            //                                                     n1, n1, n2,
-            //                                                     (modulus_size - 1),
-            //                                                     modulu,
-            //                                                     ratio0,
-            //                                                     ratio1,
-            //                                                     roots
-            //                                                 );
             matrix_multi_elemul_merge_batch_test<<<grid_batch, block>>>(matrix_n1, 
                                                                 d_delta_mod_q_i, 
-                                                                d_temp_,
+                                                                d_temp,
                                                                 matrix_n12,
                                                                 n1, n1, n2,
                                                                 (modulus_size - 1),
@@ -2631,7 +2608,7 @@ namespace seal
                                                             );
 
             matrix_multi_transpose_batch<<<grid_batch, block>>>(
-                                                            d_temp_, 
+                                                            d_temp, 
                                                             matrix_n2, 
                                                             d_delta_mod_q_i, 
                                                             n1, n2, n2, 
@@ -2649,6 +2626,9 @@ namespace seal
                                                                                                 d_inv_q_last_mod_q_operand_,
                                                                                                 d_inv_q_last_mod_q_quotient_);
 
+            deallocate_gpu<uint64_t>(&d_temp, coeff_count_ * (modulus_size - 1));
+            deallocate_gpu<uint64_t>(&d_delta_mod_q_i, (modulus_size - 1) * coeff_count_);
+
         }
 
         void RNSTool::mod_t_and_divide_q_last_ntt_inplace_cuda_v1(
@@ -2659,8 +2639,6 @@ namespace seal
             const Modulus *curr_modulus = base_q_->base();
             const Modulus plain_modulus = t_;
             uint64_t last_modulus_value = curr_modulus[modulus_size - 1].value();
-
-            ensure_size(&d_temp_, coeff_count_ * (modulus_size - 1), d_temp_size_);
 
             uint64_t *c_last = input + (modulus_size - 1) * coeff_count_;
 
@@ -2676,8 +2654,8 @@ namespace seal
             uint64_t plain_ratio1 = plain_modulus.const_ratio().data()[1];
 
 
-            ensure_size(&d_input_m_tilde_, (modulus_size - 1) * coeff_count_, d_input_m_tilde_size_);
-            uint64_t *d_delta_mod_q_i = d_input_m_tilde_;
+            uint64_t *d_delta_mod_q_i = nullptr;
+            allocate_gpu<uint64_t>(&d_delta_mod_q_i, (modulus_size - 1) * coeff_count_);
 
 
             mod_t_and_divide_q_helper<<<(coeff_count_ * (modulus_size - 1) + 255) / 256, 256>>>(c_last, d_delta_mod_q_i,
@@ -2706,6 +2684,7 @@ namespace seal
                                                                                                 base_q_->d_base(),base_q_->d_ratio1(),
                                                                                                 d_inv_q_last_mod_q_operand_,
                                                                                                 d_inv_q_last_mod_q_quotient_);
+            deallocate_gpu<uint64_t>(&d_delta_mod_q_i, (modulus_size - 1) * coeff_count_);
 
         }
 

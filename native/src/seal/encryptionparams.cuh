@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #pragma once
@@ -97,6 +97,10 @@ namespace seal
         */
         EncryptionParameters(scheme_type scheme = scheme_type::none) : scheme_(scheme)
         {
+            if (scheme_ == scheme_type::bgv)
+            {
+                throw std::invalid_argument("BGV scheme is not supported");
+            }
             compute_parms_id();
         }
 
@@ -152,7 +156,7 @@ namespace seal
         The polynomial modulus directly affects the number of coefficients in
         plaintext polynomials, the size of ciphertext elements, the computational
         performance of the scheme (bigger is worse), and the security level (bigger
-        is better). In Microsoft SEAL the degree of the polynomial modulus must be
+        is better). In IDEA SEAL_GPU the degree of the polynomial modulus must be
         a power of 2 (e.g.  1024, 2048, 4096, 8192, 16384, or 32768).
 
         @param[in] poly_modulus_degree The new polynomial modulus degree
@@ -208,7 +212,7 @@ namespace seal
         Modulus objects. The coefficient modulus directly affects the size
         of ciphertext elements, the amount of computation that the scheme can
         perform (bigger is better), and the security level (bigger is worse). In
-        Microsoft SEAL each of the prime numbers in the coefficient modulus must
+        IDEA SEAL_GPU each of the prime numbers in the coefficient modulus must
         be at most 60 bits, and must be congruent to 1 modulo 2*poly_modulus_degree.
 
         @param[in] coeff_modulus The new coefficient modulus
@@ -244,7 +248,7 @@ namespace seal
         modulus represented by the Modulus class. The plaintext modulus
         determines the largest coefficient that plaintext polynomials can represent.
         It also affects the amount of computation that the scheme can perform
-        (bigger is worse). In Microsoft SEAL the plaintext modulus can be at most
+        (bigger is worse). In IDEA SEAL_GPU the plaintext modulus can be at most
         60 bits long, but can otherwise be any integer. Note, however, that some
         features (e.g. batching) require the plaintext modulus to be of a particular
         form.
@@ -273,7 +277,7 @@ namespace seal
         takes a std::uint64_t and automatically creates the Modulus object.
         The plaintext modulus determines the largest coefficient that plaintext
         polynomials can represent. It also affects the amount of computation that
-        the scheme can perform (bigger is worse). In Microsoft SEAL the plaintext
+        the scheme can perform (bigger is worse). In IDEA SEAL_GPU the plaintext
         modulus can be at most 60 bits long, but can otherwise be any integer. Note,
         however, that some features (e.g. batching) require the plaintext modulus
         to be of a particular form.
@@ -444,7 +448,7 @@ namespace seal
 
         @param[in] stream The stream to load the EncryptionParameters from
         @throws std::logic_error if the data cannot be loaded by this version of
-        Microsoft SEAL, if the loaded data is invalid or if decompression failed
+        IDEA SEAL_GPU, if the loaded data is invalid or if decompression failed
         @throws std::runtime_error if I/O operations failed
         */
         inline std::streamoff load(std::istream &stream)
@@ -488,7 +492,7 @@ namespace seal
         @throws std::invalid_argument if in is null or if size is too small to
         contain a SEALHeader
         @throws std::logic_error if the data cannot be loaded by this version of
-        Microsoft SEAL, if the loaded data is invalid, or if decompression failed
+        IDEA SEAL_GPU, if the loaded data is invalid, or if decompression failed
         @throws std::runtime_error if I/O operations failed
         */
         inline std::streamoff load(const seal_byte *in, std::size_t size)

@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #pragma once
@@ -125,7 +125,7 @@ namespace seal
         /**
         Creates a new UniformRandomGenerator object of type indicated by the PRNG
         type and seeded with the current seed. If the current PRNG type is not
-        an official Microsoft SEAL PRNG type, the return value is nullptr.
+        an official IDEA SEAL_GPU PRNG type, the return value is nullptr.
         */
         std::shared_ptr<UniformRandomGenerator> make_prng() const;
 
@@ -237,7 +237,7 @@ namespace seal
 
         @param[in] stream The stream to load the UniformRandomGeneratorInfo from
         @throws std::logic_error if the data cannot be loaded by this version of
-        Microsoft SEAL, if the loaded data is invalid, or if decompression failed
+        IDEA SEAL_GPU, if the loaded data is invalid, or if decompression failed
         @throws std::runtime_error if I/O operations failed
         */
         inline std::streamoff load(std::istream &stream)
@@ -281,7 +281,7 @@ namespace seal
         @throws std::invalid_argument if in is null or if size is too small to
         contain a SEALHeader
         @throws std::logic_error if the data cannot be loaded by this version of
-        Microsoft SEAL, if the loaded data is invalid, or if decompression failed
+        IDEA SEAL_GPU, if the loaded data is invalid, or if decompression failed
         @throws std::runtime_error if I/O operations failed
         */
         inline std::streamoff load(const seal_byte *in, std::size_t size)

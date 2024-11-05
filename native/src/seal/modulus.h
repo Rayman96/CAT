@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #pragma once
@@ -304,7 +304,7 @@ namespace seal
 
         @param[in] stream The stream to load the Modulus from
         @throws std::logic_error if the data cannot be loaded by this version of
-        Microsoft SEAL, if the loaded data is invalid, or if decompression failed
+        IDEA SEAL_GPU, if the loaded data is invalid, or if decompression failed
         @throws std::runtime_error if I/O operations failed
         */
         inline std::streamoff load(std::istream &stream)
@@ -344,7 +344,7 @@ namespace seal
         @throws std::invalid_argument if in is null or if size is too small to
         contain a SEALHeader
         @throws std::logic_error if the data cannot be loaded by this version of
-        Microsoft SEAL, if the loaded data is invalid, or if decompression failed
+        IDEA SEAL_GPU, if the loaded data is invalid, or if decompression failed
         @throws std::runtime_error if I/O operations failed
         */
         inline std::streamoff load(const seal_byte *in, std::size_t size)
@@ -384,7 +384,7 @@ namespace seal
     security standard. The value sec_level_type::none signals that no standard
     security level should be imposed. The value sec_level_type::tc128 provides
     a very high level of security and is the default security level enforced by
-    Microsoft SEAL when constructing a SEALContext object. Normal users should not
+    IDEA SEAL_GPU when constructing a SEALContext object. Normal users should not
     have to specify the security level explicitly anywhere.
     */
     enum class sec_level_type : int
@@ -417,7 +417,7 @@ namespace seal
     a mismatching value for the poly_modulus_degree.
 
     The default value sec_level_type::tc128 provides a very high level of security
-    and is the default security level enforced by Microsoft SEAL when constructing
+    and is the default security level enforced by IDEA SEAL_GPU when constructing
     a SEALContext object. Normal users should not have to specify the security
     level explicitly anywhere.
     */

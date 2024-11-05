@@ -1,15 +1,14 @@
-# Copyright (c) Microsoft Corporation. All rights reserved.
+# Copyright (c) IDEA Corporation. All rights reserved.
 # Licensed under the MIT license.
 
 cmake_minimum_required(VERSION 3.13)
 
 ###################################################
 # Project SEAL includes the following components: #
-#   1. SEAL C++ library                           #
-#   2. SEAL C export library                      #
-#   3. SEAL C++ examples                          #
-#   4. SEAL C++ tests                             #
-#   5. SEAL CUDA library                          #
+#   1. SEAL C++ library with CUDA                 #
+#   2. SEAL C++ examples                          #
+#   3. SEAL C++ tests                             #
+#   4. SEAL CUDA library                          #
 ###################################################
 
 # [option] CMAKE_BUILD_TYPE (default: "Release")
@@ -78,7 +77,7 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
 else()
     set(SEAL_DEBUG OFF)
 endif()
-message(STATUS "Microsoft SEAL debug mode: ${SEAL_DEBUG}")
+message(STATUS "IDEA SEAL_GPU debug mode: ${SEAL_DEBUG}")
 
 # [option] SEAL_USE_CXX17 (default: ON)
 # Use C++17, use C++14 otherwise.
@@ -93,15 +92,6 @@ include(EnableCXX17)
 set(SEAL_SECURE_COMPILE_OPTIONS_OPTIONS_STR "Enable Control Flow Guard and Spectre mitigations (MSVC only)")
 option(SEAL_SECURE_COMPILE_OPTIONS ${SEAL_SECURE_COMPILE_OPTIONS_OPTIONS_STR} OFF)
 mark_as_advanced(SEAL_SECURE_COMPILE_OPTIONS)
-
-# Path for output
-if(ANDROID_ABI)
-    # Android compiles several targets at the same time. Need to specify
-    # separate directories for separate ABIs.
-    set(OUTLIB_PATH "lib/${ANDROID_ABI}")
-else()
-    set(OUTLIB_PATH "lib")
-endif()
 
 # Required files and directories
 include(GNUInstallDirs)
@@ -182,7 +172,7 @@ endif()
 
 # [option] SEAL_USE_ZLIB (default: ON)
 set(SEAL_USE_ZLIB_OPTION_STR "Use ZLIB for compressed serialization")
-option(SEAL_USE_ZLIB ${SEAL_USE_ZLIB_OPTION_STR} ON)
+option(SEAL_USE_ZLIB ${SEAL_USE_ZLIB_OPTION_STR} OFF)
 message(STATUS "SEAL_USE_ZLIB: ${SEAL_USE_ZLIB}")
 
 if(SEAL_USE_ZLIB)
@@ -203,7 +193,7 @@ endif()
 
 # [option] SEAL_USE_ZSTD (default: ON)
 set(SEAL_USE_ZSTD_OPTION_STR "Use Zstandard for compressed serialization")
-option(SEAL_USE_ZSTD ${SEAL_USE_ZSTD_OPTION_STR} ON)
+option(SEAL_USE_ZSTD ${SEAL_USE_ZSTD_OPTION_STR} OFF)
 message(STATUS "SEAL_USE_ZSTD: ${SEAL_USE_ZSTD}")
 
 if(SEAL_USE_ZSTD)
@@ -267,7 +257,7 @@ endif()
 
 # [option] SEAL_THROW_ON_TRANSPARENT_CIPHERTEXT (default: ON)
 set(SEAL_THROW_ON_TRANSPARENT_CIPHERTEXT_STR "Throw an exception when Evaluator outputs a transparent ciphertext")
-option(SEAL_THROW_ON_TRANSPARENT_CIPHERTEXT ${SEAL_THROW_ON_TRANSPARENT_CIPHERTEXT_STR} ON)
+option(SEAL_THROW_ON_TRANSPARENT_CIPHERTEXT ${SEAL_THROW_ON_TRANSPARENT_CIPHERTEXT_STR} OFF)
 message(STATUS "SEAL_THROW_ON_TRANSPARENT_CIPHERTEXT: ${SEAL_THROW_ON_TRANSPARENT_CIPHERTEXT}")
 mark_as_advanced(FORCE SEAL_THROW_ON_TRANSPARENT_CIPHERTEXT)
 
@@ -420,7 +410,7 @@ if(NOT BUILD_SHARED_LIBS)
         endif()
     endif()
 
-    if(SEAL_USE_ZLIB)
+    if()
         if(SEAL_BUILD_DEPS)
             add_dependencies(seal ${zlib})
             target_include_directories(seal PRIVATE $<BUILD_INTERFACE:${zlib_SOURCE_DIR}>)
@@ -532,75 +522,6 @@ if(TARGET seal_shared)
     add_library(SEAL::seal_shared ALIAS seal_shared)
 endif()
 
-#########################
-# SEAL C export library #
-#########################
-
-# [option] SEAL_BUILD_SEAL_C (default: OFF)
-set(SEAL_BUILD_SEAL_C_OPTION_STR "Build C export library for Microsoft SEAL")
-option(SEAL_BUILD_SEAL_C ${SEAL_BUILD_SEAL_C_OPTION_STR} OFF)
-message(STATUS "SEAL_BUILD_SEAL_C: ${SEAL_BUILD_SEAL_C}")
-
-set(SEAL_BUILD_STATIC_SEAL_C_OPTION_STR "Build static C library for Microsoft SEAL")
-cmake_dependent_option(SEAL_BUILD_STATIC_SEAL_C ${SEAL_BUILD_STATIC_SEAL_C_OPTION_STR} OFF "SEAL_BUILD_SEAL_C" OFF)
-mark_as_advanced(SEAL_BUILD_STATIC_SEAL_C)
-
-# Create SEAL_C library but add no source files yet
-if(SEAL_BUILD_SEAL_C)
-    # Check that size_t is 8 bytes
-    include(CheckTypeSize)
-    check_type_size("size_t" SIZET LANGUAGE C)
-    if(NOT ${SIZET} EQUAL 8)
-        unset(SIZET CACHE)
-        unset(HAVE_SIZET CACHE)
-        message(FATAL_ERROR "SEAL_C requires 64-bit platform")
-    endif()
-    unset(SIZET CACHE)
-    unset(HAVE_SIZET CACHE)
-
-    if(BUILD_SHARED_LIBS)
-        message(FATAL_ERROR "SEAL_C (shared or static) requires a static SEAL; set `BUILD_SHARED_LIBS=OFF` and control "
-                            "SEAL_C by setting `SEAL_BUILD_STATIC_SEAL_C` to `OFF` (default) or `ON`")
-    endif()
-
-    if(NOT SEAL_BUILD_DEPS)
-        message(FATAL_ERROR "SEAL_C requires `SEAL_BUILD_DEPS=ON`")
-    endif()
-
-    if(NOT SEAL_BUILD_STATIC_SEAL_C AND SEAL_USE_INTEL_HEXL AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND UNIX)
-        message(WARNING "SEAL_C (shared) cannot find Address Sanitizer (libasan) enabled by Intel HEXL in Debug mode "
-                        "on Unix-like systems. SEALNet does not work. Preload libasan for downstream applications.")
-    endif()
-
-    if(SEAL_BUILD_STATIC_SEAL_C)
-        add_library(sealc STATIC)
-    else()
-        add_library(sealc SHARED)
-    endif()
-
-    # Add source files to library and header files to install
-    add_subdirectory(${SEAL_INCLUDES_DIR}/seal/c)
-    seal_set_version(sealc)
-    if(SEAL_BUILD_STATIC_SEAL_C)
-        seal_set_version_filename(sealc)
-    else()
-        seal_set_soversion(sealc)
-    endif()
-    seal_set_language(sealc)
-    seal_set_include_directories(sealc)
-    if (SEAL_USE_INTEL_HEXL)
-        target_include_directories(sealc PRIVATE $<BUILD_INTERFACE:${hexl_SOURCE_DIR}/hexl/include>)
-    endif()
-
-    target_link_libraries(sealc PUBLIC seal)
-
-    seal_install_target(sealc SEALTargets)
-endif()
-
-# Add standard alias target for SEAL::sealc
-if(TARGET sealc)
-    add_library(SEAL::sealc ALIAS sealc)
-endif()
 
 #################################
 # Installation and CMake config #
@@ -710,7 +631,7 @@ endif()
 #####################
 
 # [option] SEAL_BUILD_EXAMPLES
-set(SEAL_BUILD_EXAMPLES_OPTION_STR "Build C++ examples for Microsoft SEAL")
+set(SEAL_BUILD_EXAMPLES_OPTION_STR "Build C++ examples for IDEA SEAL_GPU")
 option(SEAL_BUILD_EXAMPLES ${SEAL_BUILD_EXAMPLES_OPTION_STR} ON)
 message(STATUS "SEAL_BUILD_EXAMPLES: ${SEAL_BUILD_EXAMPLES}")
 
@@ -723,8 +644,8 @@ endif()
 ##################
 
 # [option] SEAL_BUILD_TESTS
-set(SEAL_BUILD_TESTS_OPTION_STR "Build C++ tests for Microsoft SEAL")
-option(SEAL_BUILD_TESTS ${SEAL_BUILD_TESTS_OPTION_STR} OFF)
+set(SEAL_BUILD_TESTS_OPTION_STR "Build C++ tests for IDEA SEAL_GPU")
+option(SEAL_BUILD_TESTS ${SEAL_BUILD_TESTS_OPTION_STR} ON)
 message(STATUS "SEAL_BUILD_TESTS: ${SEAL_BUILD_TESTS}")
 
 if(SEAL_BUILD_TESTS)
@@ -736,75 +657,10 @@ endif()
 #######################
 
 # [option] SEAL_BUILD_BENCH
-set(SEAL_BUILD_BENCH_OPTION_STR "Build C++ benchmarks for Microsoft SEAL")
+set(SEAL_BUILD_BENCH_OPTION_STR "Build C++ benchmarks for IDEA SEAL_GPU")
 option(SEAL_BUILD_BENCH ${SEAL_BUILD_BENCH_OPTION_STR} OFF)
 message(STATUS "SEAL_BUILD_BENCH: ${SEAL_BUILD_BENCH}")
 
 if(SEAL_BUILD_BENCH)
     add_subdirectory(native/bench)
 endif()
-
-#######################################
-# Configure SEALNet and NuGet package #
-#######################################
-
-# In Windows we will set the SEAL_C library path according to the CMake generator
-set(SEAL_WINDOWS_SEAL_C_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
-get_property(SEAL_IS_MULTI_CONFIG_GENERATOR GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
-if(SEAL_IS_MULTI_CONFIG_GENERATOR)
-    # Is this the Visual Studio generator? If so, the output path will contain the configuration.
-    # We shall use CMAKE_BUILD_TYPE here, which by default will be "Release". The user has the
-    # option of changing this by explicitly specifying CMAKE_BUILD_TYPE, which multi-config
-    # generators otherwise ignore.
-    set(SEAL_WINDOWS_SEAL_C_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${CMAKE_BUILD_TYPE})
-endif()
-
-# Create SEALNet.csproj, SEALNetExamples.csproj, and SEALNetTest.csproj
-configure_file(
-    ${CMAKE_CURRENT_LIST_DIR}/dotnet/src/SEALNet.csproj.in
-    ${CMAKE_CURRENT_BINARY_DIR}/dotnet/src/SEALNet.csproj
-    @ONLY)
-configure_file(
-    ${CMAKE_CURRENT_LIST_DIR}/dotnet/tests/SEALNetTest.csproj.in
-    ${CMAKE_CURRENT_BINARY_DIR}/dotnet/tests/SEALNetTest.csproj
-    @ONLY)
-configure_file(
-    ${CMAKE_CURRENT_LIST_DIR}/dotnet/examples/SEALNetExamples.csproj.in
-    ${CMAKE_CURRENT_BINARY_DIR}/dotnet/examples/SEALNetExamples.csproj
-    @ONLY)
-
-# Create SEALNet.sln for Visual Studio to build all dotnet projects
-configure_file(
-    ${CMAKE_CURRENT_LIST_DIR}/dotnet/SEALNet.sln.in
-    ${CMAKE_CURRENT_BINARY_DIR}/dotnet/SEALNet.sln
-    @ONLY)
-
-# Set the sealc dynamic library file names to be included in creating
-# the NuGet package. When building a multi-platform NuGet package, the
-# dynamic library paths need to be specified explicitly in the NuGet
-# command. See dotnet/nuget/SEALNet.nuspec.in.
-
-# Create SEALNet-multi.nuspec for a multi-platform NuGet package
-configure_file(
-    ${CMAKE_CURRENT_LIST_DIR}/dotnet/nuget/SEALNet-multi.nuspec.in
-    ${CMAKE_CURRENT_BINARY_DIR}/dotnet/nuget/SEALNet-multi.nuspec
-    @ONLY)
-
-set(NUGET_WINDOWS_SEAL_C_PATH "")
-set(NUGET_LINUX_SEAL_C_PATH "")
-set(NUGET_MACOS_SEAL_C_PATH "")
-
-# Supporting local building of NuGet package
-if(WIN32)
-    set(NUGET_WINDOWS_SEAL_C_PATH ${SEAL_WINDOWS_SEAL_C_DIRECTORY}/sealc.dll)
-elseif(UNIX AND NOT APPLE)
-    set(NUGET_LINUX_SEAL_C_PATH ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/libsealc.so)
-elseif(APPLE)
-    set(NUGET_MACOS_SEAL_C_PATH ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/libsealc.dylib)
-endif()
-
-# Create SEALNet.nuspec for a local NuGet pack from SEALNet.nuspec.in
-configure_file(
-    ${CMAKE_CURRENT_LIST_DIR}/dotnet/nuget/SEALNet.nuspec.in
-    ${CMAKE_CURRENT_BINARY_DIR}/dotnet/nuget/SEALNet.nuspec
-    @ONLY)

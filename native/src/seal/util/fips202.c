@@ -5,7 +5,7 @@ under CC0 Universal, version 1.0. You can find a copy of this license at
 https://creativecommons.org/publicdomain/zero/1.0/legalcode
 
 Minor modifications to the original file have been made and marked
-as `Microsoft SEAL edit: ...`.
+as `IDEA SEAL_GPU edit: ...`.
 */
 
 /* Based on the public domain implementation in
@@ -17,10 +17,10 @@ as `Microsoft SEAL edit: ...`.
 
 #include <stddef.h>
 #include <stdint.h>
-/* Microsoft SEAL edit: changed the header file path */
+/* IDEA SEAL_GPU edit: changed the header file path */
 #include "seal/util/fips202.h"
 
-/* Microsoft SEAL edit: moved the rate macros here from Kyber header fips202.h */
+/* IDEA SEAL_GPU edit: moved the rate macros here from Kyber header fips202.h */
 #define SHAKE128_RATE 168
 #define SHAKE256_RATE 136
 #define SHA3_256_RATE 136
@@ -29,7 +29,7 @@ as `Microsoft SEAL edit: ...`.
 #define NROUNDS 24
 #define ROL(a, offset) ((a << offset) ^ (a >> (64-offset)))
 
-/* Microsoft SEAL edit: moved the definition of keccak_state here from Kyber
+/* IDEA SEAL_GPU edit: moved the definition of keccak_state here from Kyber
  * header fips202.h */
 typedef struct
 {
@@ -67,7 +67,7 @@ static void store64(uint8_t x[8], uint64_t u) {
   unsigned int i;
 
   for(i=0;i<8;i++)
-    /* Microsoft SEAL edit: explicit cast to silence warnings. */
+    /* IDEA SEAL_GPU edit: explicit cast to silence warnings. */
     x[i] = (uint8_t)(u >> 8*i);
 }
 

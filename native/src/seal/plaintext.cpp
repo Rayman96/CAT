@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) IDEA Corporation. All rights reserved.
 // Licensed under the MIT license.
 
 #include "seal/plaintext.cuh"
@@ -199,7 +199,7 @@ namespace seal
         }
 
         d_data_malloc(assign_coeff_count);
-        checkCudaErrors(cudaMemcpy(d_data_, data_.begin(), assign_coeff_count * sizeof(uint64_t), cudaMemcpyHostToDevice));
+        checkCudaErrors(cudaMemcpy(d_data_.data(), data_.begin(), assign_coeff_count * sizeof(uint64_t), cudaMemcpyHostToDevice));
 
         return *this;
     }

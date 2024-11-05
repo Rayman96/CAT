@@ -93,6 +93,22 @@ namespace seal{
 
     }
 
+
+    template <typename T>
+    void allocate_gpu(std::shared_ptr<T>& ptr, size_t size) {
+        PoolManager& poolManager = PoolManager::getInstance();
+        GPUMemoryPool* memoryPool = poolManager.getMemoryPool();
+        uint64_t* new_d_data = nullptr;
+        new_d_data = static_cast<T*>(memoryPool->allocate(size * sizeof(T)));  // 在 GPU 上分配内存
+
+        // 使用 std::shared_ptr 包装 new_d_data，确保内存管理
+        ptr = std::shared_ptr<uint64_t>(new_d_data, [memoryPool, size](uint64_t* p) {
+            // 自定义删除器，用于在 shared_ptr 引用计数为 0 时释放内存
+            memoryPool->deallocate(p, size * sizeof(T));
+        });
+    }
+
+
     template<typename KernelFunc>
     inline int getOptimalBlockSize(KernelFunc kernel) {
         int minGridSize, optimalBlockSize;
@@ -116,6 +132,8 @@ namespace seal{
                                     return abs(a - optimalBlockSize) < abs(b - optimalBlockSize);
                                 });
     }
+
+    inline void print_value(uint64_t *value, int count);
 
 
     __global__ void fillTablePsi128(uint64_t psiinv, uint64_t q, uint64_t psiinvTable[], uint64_t nbit);
