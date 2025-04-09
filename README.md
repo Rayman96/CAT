@@ -70,6 +70,7 @@ cd build/bin
 
 
 Please cite if our work helps you :
+```
 @misc{li2025catgpuacceleratedfheframework,
       title={CAT: A GPU-Accelerated FHE Framework with Its Application to High-Precision Private Dataset Query}, 
       author={Qirui Li and Rui Zong},
@@ -79,3 +80,4 @@ Please cite if our work helps you :
       primaryClass={cs.CR},
       url={https://arxiv.org/abs/2503.22227}, 
 }
+```
