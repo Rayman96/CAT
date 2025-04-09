@@ -11,10 +11,8 @@ We have summarized our design of the project, which can be found in https://arxi
 Users do not need to modify the code as you are using the original SEAL, and can directly benifit from this project for GPU acceleration calculation.
 
 ## Acceleration 
-![Alt text](image.png)
-Some tests on Nvidia 4090 are under going, and will be updated soon.
 
-More details and test results will be found in our incoming paper.
+More details and test results can be found in our paper.
 
 ## Preparation
 1. Install CUDA
@@ -46,9 +44,7 @@ cd build/bin
 
 
 ## 加速效果
-部分Nvidia 4090上的测试正在进行，将会在近期更新。
-
-更多细节和测试结果将会在我们即将发表的论文中公布。
+加速效果和细节在我们的论文中可详细查阅。
 
 ## 准备操作
 1. 安装CUDA
@@ -72,3 +68,14 @@ cd build/bin
 ./sealexamples
 ```
 
+
+Please cite if our work helps you :
+@misc{li2025catgpuacceleratedfheframework,
+      title={CAT: A GPU-Accelerated FHE Framework with Its Application to High-Precision Private Dataset Query}, 
+      author={Qirui Li and Rui Zong},
+      year={2025},
+      eprint={2503.22227},
+      archivePrefix={arXiv},
+      primaryClass={cs.CR},
+      url={https://arxiv.org/abs/2503.22227}, 
+}
