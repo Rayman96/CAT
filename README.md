@@ -1,8 +1,3 @@
-## Article
-We have summarized our design of the project, which can be found in https://arxiv.org/abs/2503.22227
-
-
-
 ***English:***
 
 # FHE GPU Acceleration Library
@@ -66,18 +61,4 @@ make
 ```
 cd build/bin
 ./sealexamples
-```
-
-
-Please cite if our work helps you :
-```
-@misc{li2025catgpuacceleratedfheframework,
-      title={CAT: A GPU-Accelerated FHE Framework with Its Application to High-Precision Private Dataset Query}, 
-      author={Qirui Li and Rui Zong},
-      year={2025},
-      eprint={2503.22227},
-      archivePrefix={arXiv},
-      primaryClass={cs.CR},
-      url={https://arxiv.org/abs/2503.22227}, 
-}
 ```
